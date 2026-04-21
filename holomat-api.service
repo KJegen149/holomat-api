@@ -1,0 +1,27 @@
+[Unit]
+Description=HoloMat Pipeline API Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jarvis
+WorkingDirectory=/home/jarvis/holomat-api
+ExecStart=/home/jarvis/holomat-api/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8100
+Restart=on-failure
+RestartSec=5
+
+# ── Printer / pipeline config ─────────────────────────────────────────────
+Environment=BAMBU_IP=10.11.12.91
+Environment=BAMBU_ACCESS_CODE=14620600
+Environment=BAMBU_SERIAL=01p00c5c0701414
+Environment=BAMBU_CERT=/home/jarvis/holomat-api/certs/printer.pem
+Environment=CF_API_URL=https://jarvis-api.kjeg.workers.dev
+# Set CF_API_KEY after install:
+#   sudo systemctl edit holomat-api
+#   then add:  Environment=CF_API_KEY=your_key_here
+Environment=CF_API_KEY=
+Environment=ORCA_CLI=/usr/bin/orca-slicer
+
+[Install]
+WantedBy=multi-user.target

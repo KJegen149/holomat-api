@@ -1,0 +1,5 @@
+venv/
+__pycache__/
+*.pyc
+squashfs-root/
+OrcaSlicer.AppImage
