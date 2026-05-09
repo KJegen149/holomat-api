@@ -1,5 +1,27 @@
+# ── Web framework ──────────────────────────────────────────────────────────
 fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
-bambulabs-api>=0.4.0
-httpx>=0.27.0
 pydantic>=2.0.0
+python-multipart>=0.0.9
+aiofiles>=23.2.1
+
+# ── HTTP client ────────────────────────────────────────────────────────────
+httpx>=0.27.0
+
+# ── 3D printer ────────────────────────────────────────────────────────────
+bambulabs-api>=0.4.0
+
+# ── Computer vision (Phase 1 — calibration, Phase 4 — scanning) ───────────
+opencv-python>=4.9.0
+numpy>=1.26.0
+imutils>=0.5.4
+
+# ── File watching (Phase 6 — SMB gallery watcher) ─────────────────────────
+watchdog>=4.0.0
+
+# ── Image handling (Phase 6 — HEIC conversion) ────────────────────────────
+Pillow>=10.3.0
+pillow-heif>=0.16.0
+
+# ── WebSocket support (included via uvicorn[standard] but explicit) ────────
+websockets>=12.0
