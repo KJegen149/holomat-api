@@ -26,6 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from core.logger import get_logger, set_broadcast, setup_logging
 from api.websocket import manager as ws_manager, router as ws_router
 from api.routes.system import router as system_router
+from api.routes.camera import router as camera_router
 from api.routes.calibration import router as calibration_router
 from api.routes.scan import router as scan_router
 from api.routes.print import router as print_router
@@ -44,7 +45,7 @@ UI_PLACEHOLDER = BASE_DIR / "ui" / "index.html"  # Phase 0-1: boot placeholder
 async def lifespan(app: FastAPI):
     # Wire logger → WebSocket so all log lines stream to the Console app
     set_broadcast(ws_manager.broadcast)
-    log.info("━━━ Holomat v0.2.0 starting ━━━")
+    log.info("━━━ Holomat v0.2.0 starting — Phase 1 ━━━")
 
     # SMB watcher (Phase 6)
     try:
@@ -99,6 +100,7 @@ app.add_middleware(
 # ── Routers ────────────────────────────────────────────────────────────────
 app.include_router(ws_router)
 app.include_router(system_router,      prefix="/api")
+app.include_router(camera_router,      prefix="/api/camera")
 app.include_router(calibration_router, prefix="/api/calibration")
 app.include_router(scan_router,        prefix="/api/scan")
 app.include_router(print_router,       prefix="/api/print")
