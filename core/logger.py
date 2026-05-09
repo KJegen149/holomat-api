@@ -1,0 +1,62 @@
+import asyncio
+import logging
+import sys
+from datetime import datetime, timezone
+from typing import Callable, Optional
+
+# Broadcast callable injected by main.py after WS manager is ready
+_broadcast: Optional[Callable] = None
+
+
+def set_broadcast(fn: Callable) -> None:
+    global _broadcast
+    _broadcast = fn
+
+
+class _WebSocketHandler(logging.Handler):
+    """Forwards log records to all connected WebSocket clients."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if _broadcast is None:
+            return
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(
+                    _broadcast({
+                        "type": "log",
+                        "level": record.levelname,
+                        "name": record.name,
+                        "message": self.format(record),
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                    })
+                )
+        except Exception:
+            pass
+
+
+def setup_logging() -> None:
+    fmt = logging.Formatter(
+        "[%(asctime)s] %(levelname)-8s %(name)-28s %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+
+    # Console handler
+    sh = logging.StreamHandler(sys.stdout)
+    sh.setFormatter(fmt)
+    root.addHandler(sh)
+
+    # WebSocket broadcast handler
+    wsh = _WebSocketHandler()
+    wsh.setFormatter(fmt)
+    root.addHandler(wsh)
+
+    # Quiet noisy libraries
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    logging.getLogger("watchdog").setLevel(logging.WARNING)
+
+
+def get_logger(name: str) -> logging.Logger:
+    return logging.getLogger(name)

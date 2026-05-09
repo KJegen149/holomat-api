@@ -1,5 +1,33 @@
 venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+
+# OrcaSlicer AppImage (large binary)
 squashfs-root/
 OrcaSlicer.AppImage
+
+# Calibration data (contains camera-specific matrices, not portable)
+calibration_data/*.json
+
+# SMB share contents
+smb_share/*
+!smb_share/.gitkeep
+
+# React build output
+ui/dist/
+ui/node_modules/
+
+# Environment overrides
+.env
+.env.local
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# macOS
+.DS_Store

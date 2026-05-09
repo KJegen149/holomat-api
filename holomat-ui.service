@@ -1,0 +1,38 @@
+[Unit]
+Description=Holomat UI (Chromium Kiosk)
+Requires=holomat-api.service
+After=holomat-api.service graphical.target
+
+[Service]
+Type=simple
+User=jarvis
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/jarvis/.Xauthority
+
+# Wait until the API is accepting connections before launching Chromium
+ExecStartPre=/bin/bash -c '\
+  echo "Waiting for Holomat API..."; \
+  until curl -sf http://localhost:8100/api/health > /dev/null 2>&1; do \
+    sleep 1; \
+  done; \
+  echo "API ready — launching Chromium"'
+
+ExecStart=/usr/bin/chromium-browser \
+  --kiosk \
+  --noerrdialogs \
+  --disable-infobars \
+  --no-first-run \
+  --disable-session-crashed-bubble \
+  --disable-restore-session-state \
+  --disable-background-networking \
+  --disable-translate \
+  --hide-scrollbars \
+  --disable-pinch \
+  --overscroll-history-navigation=0 \
+  --app=http://localhost:8100
+
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=graphical.target
