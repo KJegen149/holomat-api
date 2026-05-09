@@ -18,7 +18,7 @@ log = get_logger(__name__)
 router = APIRouter()
 
 VERSION = "0.2.0"
-BUILD_PHASE = "Phase 1 — Calibration Engine"
+BUILD_PHASE = "Phase 2 — UI Shell"
 
 
 @router.get("/health")

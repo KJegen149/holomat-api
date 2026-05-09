@@ -45,7 +45,7 @@ UI_PLACEHOLDER = BASE_DIR / "ui" / "index.html"  # Phase 0-1: boot placeholder
 async def lifespan(app: FastAPI):
     # Wire logger → WebSocket so all log lines stream to the Console app
     set_broadcast(ws_manager.broadcast)
-    log.info("━━━ Holomat v0.2.0 starting — Phase 1 ━━━")
+    log.info("━━━ Holomat v0.2.0 starting — Phase 2 ━━━")
 
     # SMB watcher (Phase 6)
     try:
