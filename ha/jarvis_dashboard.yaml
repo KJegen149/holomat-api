@@ -91,9 +91,25 @@ _gauge: &gauge
 _media: &media
   card_mod:
     style: |
-      ha-card { background: #0a0d12; border: 1px solid #0e2a35; border-radius: 2px; box-shadow: 0 0 12px rgba(0,200,232,0.06); color: #c8f0f8; }
-      .title { font-family: 'Rajdhani', sans-serif !important; color: #00c8e8 !important; letter-spacing: 0.15em !important; text-transform: uppercase !important; }
+      :host {
+        --ha-card-background: #0a0d12 !important;
+      }
+      ha-card {
+        background:       #0a0d12 !important;
+        background-image: none !important;
+        border:        1px solid #0e2a35;
+        border-radius: 2px;
+        box-shadow:    0 0 12px rgba(0,200,232,0.06);
+        color:         #c8f0f8;
+      }
+      .title {
+        font-family:    'Rajdhani', sans-serif !important;
+        color:          #00c8e8 !important;
+        letter-spacing: 0.15em !important;
+        text-transform: uppercase !important;
+      }
       ha-icon-button { color: #00c8e8 !important; }
+      paper-icon-button { color: #00c8e8 !important; }
 
 _picture: &picture
   card_mod:
