@@ -2,47 +2,234 @@
 # JARVIS Dashboard — Home Assistant Lovelace configuration
 # Phase 3 — Holomat / Home Assistant Embedding
 #
-# SETUP INSTRUCTIONS:
-#   1. In HA: Settings → Dashboards → Add Dashboard
-#      Title: JARVIS  |  URL path: jarvis  |  Icon: mdi:hexagon-multiple
-#   2. Click "EDIT DASHBOARD" → ⋮ menu → "Edit in YAML" → paste this file
-#   3. For JARVIS styling, install via HACS:
-#        Frontend → card-mod  (CSS theming)
-#   4. To allow iframe embedding from Holomat, add to HA configuration.yaml:
+# PREREQUISITES (one-time setup):
+#   1. Apply JARVIS theme:  Profile → Theme → JARVIS
+#      (requires jarvis_theme.yaml in config/themes/ and frontend: themes: in configuration.yaml)
+#   2. HACS frontend deps:
+#        - card-mod          (CSS theming — required for full styling)
+#   3. Add fonts as a Lovelace resource:
+#        Settings → Dashboards → ⋮ → Resources → Add Resource
+#        URL:  https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap
+#        Type: Stylesheet
+#   4. Allow iframe embedding — HA configuration.yaml:
 #        http:
 #          use_x_forwarded_for: true
 #          trusted_proxies:
 #            - 10.11.12.0/24   # adjust to your subnet
-#      Then also set: Content-Security-Policy via a reverse proxy,
-#      OR in HA Settings → General → allow framing from your Holomat host.
-#
-# ENTITY CUSTOMIZATION:
-#   Replace placeholder entity IDs (marked with # ← CUSTOMIZE) with your own.
-#   Holomat entities are auto-created via MQTT discovery — no changes needed there.
+#   5. Holomat MQTT entities appear automatically once HA_MQTT_HOST is set.
+#      The "HOLOMAT" tab entities require NO customization.
 #
 # JARVIS USER (kiosk access):
-#   Settings → People → Add Person  |  Name: JARVIS  |  Allow Login: yes
-#   Create a long-lived token for this user and set HA_TOKEN in Holomat .env.
-#   Restrict dashboard access:  Settings → Dashboards → JARVIS → Visible to: JARVIS user only
+#   Settings → People → Jarvis → restrict to this dashboard only.
+#   Create a Long-Lived Access Token for that user if needed for auto-login.
+#
+# ENTITY CUSTOMIZATION:
+#   Lines marked   # ← CUSTOMIZE   must be replaced with your entity IDs.
+#   All Holomat entities (binary_sensor.holomat_*, sensor.holomat_*) are auto-created.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ── Shared card-mod style snippets ─────────────────────────────────────────
+# These are referenced below via YAML anchors to reduce repetition.
+# ────────────────────────────────────────────────────────────────────────────
+_card_style: &card_style
+  card_mod:
+    style: |
+      ha-card {
+        background:    #0a0d12;
+        border:        1px solid #0e2a35;
+        border-radius: 2px;
+        color:         #c8f0f8;
+        box-shadow:    0 0 12px rgba(0,200,232,0.06);
+      }
+      .card-header, .header {
+        color:          #00c8e8 !important;
+        font-family:    'Rajdhani', sans-serif !important;
+        font-weight:    700 !important;
+        font-size:      13px !important;
+        letter-spacing: 0.18em !important;
+        text-transform: uppercase !important;
+        padding:        12px 16px 6px !important;
+        border-bottom:  1px solid #0e2a35 !important;
+      }
+      .card-content {
+        padding: 8px 16px 12px !important;
+      }
+
+_entities_row_style: &entities_row_style
+  card_mod:
+    style: |
+      ha-card {
+        background:    #0a0d12;
+        border:        1px solid #0e2a35;
+        border-radius: 2px;
+        box-shadow:    0 0 12px rgba(0,200,232,0.06);
+      }
+      .card-header {
+        color:          #00c8e8 !important;
+        font-family:    'Rajdhani', sans-serif !important;
+        font-weight:    700 !important;
+        font-size:      13px !important;
+        letter-spacing: 0.18em !important;
+        text-transform: uppercase !important;
+        padding:        12px 16px 6px !important;
+        border-bottom:  1px solid #0e2a35 !important;
+      }
+      .card-content {
+        padding: 4px 0 8px !important;
+      }
+      hui-generic-entity-row {
+        border-bottom: 1px solid #0e2a35 !important;
+        padding: 8px 16px !important;
+      }
+      hui-generic-entity-row:last-child {
+        border-bottom: none !important;
+      }
+      .info, .info > span:first-child {
+        font-family:    'Rajdhani', sans-serif !important;
+        font-size:      13px !important;
+        letter-spacing: 0.08em !important;
+        text-transform: uppercase !important;
+        color:          #c8f0f8 !important;
+      }
+      .secondary {
+        color: #3a7a8a !important;
+        font-size: 10px !important;
+        letter-spacing: 0.05em !important;
+      }
+      state-badge {
+        color: #00c8e8 !important;
+      }
+
+_markdown_header_style: &markdown_header_style
+  card_mod:
+    style: |
+      ha-card {
+        background:    transparent;
+        border:        none;
+        box-shadow:    none;
+      }
+      ha-markdown {
+        color:          #3a7a8a !important;
+        font-family:    'Rajdhani', sans-serif !important;
+        font-size:      11px !important;
+        letter-spacing: 0.1em !important;
+        text-transform: uppercase !important;
+      }
+      ha-markdown h2 {
+        color:          #00c8e8 !important;
+        font-size:      15px !important;
+        font-weight:    700 !important;
+        letter-spacing: 0.25em !important;
+        border-bottom:  1px solid #0e2a35 !important;
+        padding-bottom: 6px !important;
+        margin-bottom:  4px !important;
+      }
+      ha-markdown em {
+        color:     #3a7a8a !important;
+        font-style: normal !important;
+        font-size:  10px !important;
+      }
+
+_glance_style: &glance_style
+  card_mod:
+    style: |
+      ha-card {
+        background:    #0a0d12;
+        border:        1px solid #0e2a35;
+        border-radius: 2px;
+        box-shadow:    0 0 12px rgba(0,200,232,0.06);
+      }
+      .card-header {
+        color:          #00c8e8 !important;
+        font-family:    'Rajdhani', sans-serif !important;
+        font-weight:    700 !important;
+        font-size:      13px !important;
+        letter-spacing: 0.18em !important;
+        text-transform: uppercase !important;
+        border-bottom:  1px solid #0e2a35 !important;
+      }
+      .entities {
+        padding: 8px 0 !important;
+      }
+      .entity {
+        padding: 4px 8px !important;
+      }
+      .entity .name {
+        font-family:    'Rajdhani', sans-serif !important;
+        font-size:      10px !important;
+        letter-spacing: 0.12em !important;
+        text-transform: uppercase !important;
+        color:          #3a7a8a !important;
+      }
+      .entity .state {
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size:   12px !important;
+        color:       #00c8e8 !important;
+      }
+
+_gauge_style: &gauge_style
+  card_mod:
+    style: |
+      ha-card {
+        background:    #0a0d12;
+        border:        1px solid #0e2a35;
+        border-radius: 2px;
+        box-shadow:    0 0 12px rgba(0,200,232,0.06);
+      }
+      .title {
+        font-family:    'Rajdhani', sans-serif !important;
+        color:          #00c8e8 !important;
+        font-size:      13px !important;
+        letter-spacing: 0.18em !important;
+        text-transform: uppercase !important;
+      }
+      .measurement {
+        font-family: 'JetBrains Mono', monospace !important;
+        color:       #c8f0f8 !important;
+      }
+
+_history_style: &history_style
+  card_mod:
+    style: |
+      ha-card {
+        background:    #0a0d12;
+        border:        1px solid #0e2a35;
+        border-radius: 2px;
+        box-shadow:    0 0 12px rgba(0,200,232,0.06);
+      }
+      .card-header {
+        color:          #00c8e8 !important;
+        font-family:    'Rajdhani', sans-serif !important;
+        font-weight:    700 !important;
+        font-size:      13px !important;
+        letter-spacing: 0.18em !important;
+        text-transform: uppercase !important;
+        border-bottom:  1px solid #0e2a35 !important;
+      }
+
+# ══════════════════════════════════════════════════════════════════════════════
 title: JARVIS
 views:
 
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ══════════════════════════════════════════════════════════════════════════
   # TAB 1 — HOLOMAT STATUS
-  # Sensor data published by the Holomat API via MQTT discovery.
-  # These entities appear automatically once HA_MQTT_HOST is configured.
-  # ═══════════════════════════════════════════════════════════════════════════
+  # Auto-populated via MQTT discovery — no entity customization needed here.
+  # ══════════════════════════════════════════════════════════════════════════
   - title: HOLOMAT
     icon: mdi:grid-large
     path: holomat
+    card_mod:
+      style:
+        .: |
+          background: #050508 !important;
+
     cards:
 
       - type: markdown
         content: |
           ## ◈ HOLOMAT — SMART FABRICATION SURFACE
-          *Real-time status from the Holomat API via MQTT discovery*
+          *Real-time telemetry via MQTT discovery*
+        <<: *markdown_header_style
 
       - type: glance
         title: System Overview
@@ -56,16 +243,23 @@ views:
             name: Printer
           - entity: sensor.holomat_ws_clients
             name: Clients
+        <<: *glance_style
 
       - type: entities
         title: Calibration
         entities:
           - entity: binary_sensor.holomat_calibration_valid
             name: Valid
+          - type: custom:mod-card
+            card:
+              type: attribute
+              entity: sensor.holomat_calibration_rmse
+              name: RMSE (px)
           - entity: sensor.holomat_calibration_rmse
             name: RMSE
           - entity: sensor.holomat_calibration_points
             name: Point Count
+        <<: *entities_row_style
 
       - type: entities
         title: System
@@ -78,168 +272,298 @@ views:
             name: Printer Configured
           - entity: sensor.holomat_ws_clients
             name: Active WebSocket Clients
+        <<: *entities_row_style
 
       - type: history-graph
-        title: RMSE History
+        title: Calibration RMSE — 24h
         hours_to_show: 24
         entities:
           - entity: sensor.holomat_calibration_rmse
-            name: Calibration RMSE
+            name: RMSE (px)
+        <<: *history_style
 
-  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ══════════════════════════════════════════════════════════════════════════
   # TAB 2 — HOME OVERVIEW
-  # Replace entity IDs with your actual lights, climate, and switches.
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ══════════════════════════════════════════════════════════════════════════
   - title: HOME
     icon: mdi:home-outline
     path: home
+    card_mod:
+      style:
+        .: |
+          background: #050508 !important;
+
     cards:
 
       - type: markdown
         content: |
           ## ◈ HOME — OVERVIEW
-          *Lights, climate, and primary controls*
+          *Lights, climate, primary controls*
+        <<: *markdown_header_style
 
       - type: light
-        title: Lights                                       # ← CUSTOMIZE
-        entity: light.living_room                          # ← CUSTOMIZE
+        title: Lights
+        entity: light.living_room                       # ← CUSTOMIZE
+        <<: *card_style
 
       - type: thermostat
-        entity: climate.main_thermostat                    # ← CUSTOMIZE
+        entity: climate.main_thermostat                 # ← CUSTOMIZE
         name: Climate
+        <<: *card_style
 
       - type: entities
         title: Switches
         entities:
-          - entity: switch.garage_door                     # ← CUSTOMIZE
-          - entity: switch.front_porch_light               # ← CUSTOMIZE
-          - entity: switch.back_yard_light                 # ← CUSTOMIZE
+          - entity: switch.garage_door                  # ← CUSTOMIZE
+          - entity: switch.front_porch_light            # ← CUSTOMIZE
+          - entity: switch.back_yard_light              # ← CUSTOMIZE
+        <<: *entities_row_style
 
       - type: weather-forecast
-        entity: weather.home                               # ← CUSTOMIZE
+        entity: weather.home                            # ← CUSTOMIZE
         forecast_type: daily
+        card_mod:
+          style: |
+            ha-card {
+              background:    #0a0d12;
+              border:        1px solid #0e2a35;
+              border-radius: 2px;
+              box-shadow:    0 0 12px rgba(0,200,232,0.06);
+            }
+            .card-header {
+              color:          #00c8e8 !important;
+              font-family:    'Rajdhani', sans-serif !important;
+              font-weight:    700 !important;
+              letter-spacing: 0.18em !important;
+              text-transform: uppercase !important;
+              border-bottom:  1px solid #0e2a35 !important;
+            }
+            .temp {
+              color: #c8f0f8 !important;
+              font-family: 'JetBrains Mono', monospace !important;
+            }
+            .templow {
+              color: #3a7a8a !important;
+              font-family: 'JetBrains Mono', monospace !important;
+            }
 
-  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ══════════════════════════════════════════════════════════════════════════
   # TAB 3 — MEDIA & CAMERAS
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ══════════════════════════════════════════════════════════════════════════
   - title: MEDIA
     icon: mdi:television-play
     path: media
+    card_mod:
+      style:
+        .: |
+          background: #050508 !important;
+
     cards:
 
       - type: markdown
         content: |
           ## ◈ MEDIA — PLAYERS & CAMERAS
+          *Cameras and media control*
+        <<: *markdown_header_style
 
       - type: media-control
-        entity: media_player.living_room_tv                # ← CUSTOMIZE
+        entity: media_player.living_room_tv             # ← CUSTOMIZE
+        card_mod:
+          style: |
+            ha-card {
+              background:    #0a0d12;
+              border:        1px solid #0e2a35;
+              border-radius: 2px;
+              box-shadow:    0 0 12px rgba(0,200,232,0.06);
+              color:         #c8f0f8;
+            }
+            .title {
+              font-family:    'Rajdhani', sans-serif !important;
+              color:          #00c8e8 !important;
+              letter-spacing: 0.15em !important;
+              text-transform: uppercase !important;
+            }
+            ha-icon-button {
+              color: #00c8e8 !important;
+            }
 
       - type: media-control
-        entity: media_player.bedroom_speaker               # ← CUSTOMIZE
+        entity: media_player.bedroom_speaker            # ← CUSTOMIZE
+        card_mod:
+          style: |
+            ha-card {
+              background:    #0a0d12;
+              border:        1px solid #0e2a35;
+              border-radius: 2px;
+              box-shadow:    0 0 12px rgba(0,200,232,0.06);
+              color:         #c8f0f8;
+            }
+            .title {
+              font-family:    'Rajdhani', sans-serif !important;
+              color:          #00c8e8 !important;
+              letter-spacing: 0.15em !important;
+              text-transform: uppercase !important;
+            }
+            ha-icon-button {
+              color: #00c8e8 !important;
+            }
 
       - type: picture-glance
         title: Front Door
-        entity: camera.front_door                          # ← CUSTOMIZE
-        camera_image: camera.front_door                    # ← CUSTOMIZE
+        entity: camera.front_door                       # ← CUSTOMIZE
+        camera_image: camera.front_door                 # ← CUSTOMIZE
         entities:
-          - entity: binary_sensor.front_door_motion        # ← CUSTOMIZE
+          - entity: binary_sensor.front_door_motion     # ← CUSTOMIZE
+        card_mod:
+          style: |
+            ha-card {
+              border:        1px solid #0e2a35;
+              border-radius: 2px;
+              overflow:      hidden;
+              box-shadow:    0 0 12px rgba(0,200,232,0.06);
+            }
+            .label {
+              font-family:    'Rajdhani', sans-serif !important;
+              color:          #00c8e8 !important;
+              letter-spacing: 0.15em !important;
+              text-transform: uppercase !important;
+            }
 
       - type: picture-glance
         title: Backyard
-        entity: camera.backyard                            # ← CUSTOMIZE
-        camera_image: camera.backyard                      # ← CUSTOMIZE
+        entity: camera.backyard                         # ← CUSTOMIZE
+        camera_image: camera.backyard                   # ← CUSTOMIZE
         entities:
-          - entity: binary_sensor.backyard_motion          # ← CUSTOMIZE
+          - entity: binary_sensor.backyard_motion       # ← CUSTOMIZE
+        card_mod:
+          style: |
+            ha-card {
+              border:        1px solid #0e2a35;
+              border-radius: 2px;
+              overflow:      hidden;
+              box-shadow:    0 0 12px rgba(0,200,232,0.06);
+            }
+            .label {
+              font-family:    'Rajdhani', sans-serif !important;
+              color:          #00c8e8 !important;
+              letter-spacing: 0.15em !important;
+              text-transform: uppercase !important;
+            }
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # TAB 4 — 3D PRINTER
-  # Bambu P1S status via bambulabs integration or MQTT.
-  # Install: HACS → Bambu Lab integration (or configure MQTT sensors manually)
-  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # TAB 4 — 3D PRINTER  (Bambu P1S)
+  # Install: HACS → Bambu Lab integration for full entity set
+  # ══════════════════════════════════════════════════════════════════════════
   - title: PRINTER
     icon: mdi:printer-3d
     path: printer
+    card_mod:
+      style:
+        .: |
+          background: #050508 !important;
+
     cards:
 
       - type: markdown
         content: |
           ## ◈ BAMBU P1S — PRINT MONITOR
-          *Install the Bambu Lab HACS integration for full printer control*
+          *Install the Bambu Lab HACS integration for full entity set*
+        <<: *markdown_header_style
 
-      # If using Bambu Lab HA integration (HACS):
       - type: entities
         title: Printer Status
         entities:
-          - entity: sensor.bambu_p1s_print_status           # ← CUSTOMIZE (Bambu integration)
+          - entity: sensor.bambu_p1s_print_status        # ← CUSTOMIZE
             name: Status
-          - entity: sensor.bambu_p1s_current_file           # ← CUSTOMIZE
+          - entity: sensor.bambu_p1s_current_file        # ← CUSTOMIZE
             name: File
-          - entity: sensor.bambu_p1s_print_progress         # ← CUSTOMIZE
+          - entity: sensor.bambu_p1s_print_progress      # ← CUSTOMIZE
             name: Progress
-          - entity: sensor.bambu_p1s_nozzle_temperature     # ← CUSTOMIZE
-            name: Nozzle Temp
-          - entity: sensor.bambu_p1s_bed_temperature        # ← CUSTOMIZE
-            name: Bed Temp
+          - entity: sensor.bambu_p1s_nozzle_temperature  # ← CUSTOMIZE
+            name: Nozzle
+          - entity: sensor.bambu_p1s_bed_temperature     # ← CUSTOMIZE
+            name: Bed
+        <<: *entities_row_style
 
       - type: gauge
         title: Print Progress
-        entity: sensor.bambu_p1s_print_progress             # ← CUSTOMIZE
+        entity: sensor.bambu_p1s_print_progress          # ← CUSTOMIZE
         min: 0
         max: 100
         unit: "%"
         needle: true
         segments:
           - from: 0
-            color: "#ef4444"
+            color: "#e83040"
           - from: 25
-            color: "#f59e0b"
+            color: "#e8a020"
           - from: 75
-            color: "#22c55e"
+            color: "#00ff88"
+        <<: *gauge_style
 
-      # Holomat printer config status (from MQTT discovery)
       - type: entities
         title: Holomat Printer Link
         entities:
           - entity: binary_sensor.holomat_printer_configured
-            name: Printer Configured in Holomat
+            name: Configured in Holomat
+        <<: *entities_row_style
 
-  # ═══════════════════════════════════════════════════════════════════════════
+      - type: history-graph
+        title: Temperatures — 6h
+        hours_to_show: 6
+        entities:
+          - entity: sensor.bambu_p1s_nozzle_temperature  # ← CUSTOMIZE
+            name: Nozzle
+          - entity: sensor.bambu_p1s_bed_temperature     # ← CUSTOMIZE
+            name: Bed
+        <<: *history_style
+
+
+  # ══════════════════════════════════════════════════════════════════════════
   # TAB 5 — NETWORK  (Unifi)
-  # Requires: Unifi integration (built-in HA or HACS)
   # Settings → Integrations → Add Integration → UniFi Network
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ══════════════════════════════════════════════════════════════════════════
   - title: NETWORK
     icon: mdi:lan
     path: network
+    card_mod:
+      style:
+        .: |
+          background: #050508 !important;
+
     cards:
 
       - type: markdown
         content: |
           ## ◈ NETWORK — UNIFI
-          *Requires the UniFi Network integration (Settings → Integrations)*
+          *Requires the UniFi Network integration*
+        <<: *markdown_header_style
 
-      - type: entities
-        title: Connected Devices
+      - type: glance
+        title: WAN Overview
+        columns: 3
         entities:
           - entity: sensor.unifi_gateway_wan_download_speed   # ← CUSTOMIZE
-            name: WAN Download
+            name: Download
           - entity: sensor.unifi_gateway_wan_upload_speed     # ← CUSTOMIZE
-            name: WAN Upload
+            name: Upload
           - entity: sensor.unifi_gateway_clients              # ← CUSTOMIZE
-            name: Connected Clients
-          - entity: sensor.unifi_gateway_wlan_clients         # ← CUSTOMIZE
-            name: Wi-Fi Clients
+            name: Clients
+        <<: *glance_style
 
       - type: history-graph
-        title: WAN Speed
+        title: WAN Speed — 6h
         hours_to_show: 6
         entities:
           - entity: sensor.unifi_gateway_wan_download_speed   # ← CUSTOMIZE
             name: Download
           - entity: sensor.unifi_gateway_wan_upload_speed     # ← CUSTOMIZE
             name: Upload
+        <<: *history_style
 
-      # Device tracker cards — add key hosts
       - type: entities
         title: Key Hosts
         entities:
@@ -247,53 +571,151 @@ views:
             name: KJLC-AI-01 (Holomat)
           - entity: device_tracker.bambu_p1s                  # ← CUSTOMIZE
             name: Bambu P1S
+        <<: *entities_row_style
 
-  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ══════════════════════════════════════════════════════════════════════════
   # TAB 6 — MUSIC ASSISTANT
-  # Requires: Music Assistant HACS integration
   # HACS → Integrations → Music Assistant
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ══════════════════════════════════════════════════════════════════════════
   - title: MUSIC
     icon: mdi:music
     path: music
+    card_mod:
+      style:
+        .: |
+          background: #050508 !important;
+
     cards:
 
       - type: markdown
         content: |
           ## ◈ MUSIC ASSISTANT
           *Requires the Music Assistant HACS integration*
+        <<: *markdown_header_style
 
       - type: media-control
-        entity: media_player.music_assistant_player          # ← CUSTOMIZE (MA player entity)
+        entity: media_player.music_assistant_player      # ← CUSTOMIZE
+        card_mod:
+          style: |
+            ha-card {
+              background:    #0a0d12;
+              border:        1px solid #0e2a35;
+              border-radius: 2px;
+              box-shadow:    0 0 12px rgba(0,200,232,0.06);
+              color:         #c8f0f8;
+            }
+            .title {
+              font-family:    'Rajdhani', sans-serif !important;
+              color:          #00c8e8 !important;
+              letter-spacing: 0.15em !important;
+              text-transform: uppercase !important;
+            }
+            ha-icon-button { color: #00c8e8 !important; }
 
       - type: entities
         title: Active Players
         entities:
-          - entity: media_player.living_room_ma              # ← CUSTOMIZE
+          - entity: media_player.living_room_ma          # ← CUSTOMIZE
             name: Living Room
-          - entity: media_player.kitchen_ma                  # ← CUSTOMIZE
+          - entity: media_player.kitchen_ma              # ← CUSTOMIZE
             name: Kitchen
-          - entity: media_player.bedroom_ma                  # ← CUSTOMIZE
+          - entity: media_player.bedroom_ma              # ← CUSTOMIZE
             name: Bedroom
+        <<: *entities_row_style
 
-  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ══════════════════════════════════════════════════════════════════════════
   # TAB 7 — CALENDAR
-  # Uses the built-in HA Calendar card.
-  # Requires calendar entities configured in HA (Google, iCal, local, etc.)
-  # ═══════════════════════════════════════════════════════════════════════════
+  # Configure calendar entities in HA (Google, iCal, local, etc.)
+  # ══════════════════════════════════════════════════════════════════════════
   - title: CALENDAR
     icon: mdi:calendar-month
     path: calendar
+    card_mod:
+      style:
+        .: |
+          background: #050508 !important;
+
     cards:
 
       - type: markdown
         content: |
           ## ◈ CALENDAR
+          *Google, iCal, or local HA calendars*
+        <<: *markdown_header_style
 
       - type: calendar
         title: Schedule
         initial_view: dayGridMonth
         entities:
-          - calendar.personal                                 # ← CUSTOMIZE
-          - calendar.work                                     # ← CUSTOMIZE
-          - calendar.holidays_in_united_states                # ← CUSTOMIZE (auto-added by HA)
+          - calendar.personal                            # ← CUSTOMIZE
+          - calendar.work                                # ← CUSTOMIZE
+          - calendar.holidays_in_united_states           # ← CUSTOMIZE
+        card_mod:
+          style: |
+            ha-card {
+              background:    #0a0d12;
+              border:        1px solid #0e2a35;
+              border-radius: 2px;
+              box-shadow:    0 0 12px rgba(0,200,232,0.06);
+            }
+            .card-header {
+              color:          #00c8e8 !important;
+              font-family:    'Rajdhani', sans-serif !important;
+              font-weight:    700 !important;
+              letter-spacing: 0.18em !important;
+              text-transform: uppercase !important;
+              border-bottom:  1px solid #0e2a35 !important;
+            }
+            /* Calendar grid */
+            .fc-col-header-cell-cushion {
+              color:          #3a7a8a !important;
+              font-family:    'Rajdhani', sans-serif !important;
+              letter-spacing: 0.1em !important;
+              text-transform: uppercase !important;
+              font-size:      11px !important;
+            }
+            .fc-daygrid-day-number {
+              color:      #c8f0f8 !important;
+              font-family: 'JetBrains Mono', monospace !important;
+              font-size:  11px !important;
+            }
+            .fc-daygrid-day.fc-day-today {
+              background: #0e2a35 !important;
+            }
+            .fc-event {
+              background:    #00c8e8 !important;
+              border:        none !important;
+              border-radius: 1px !important;
+              color:         #050508 !important;
+              font-family:   'Rajdhani', sans-serif !important;
+              font-size:     10px !important;
+              font-weight:   700 !important;
+              letter-spacing: 0.05em !important;
+            }
+            .fc-toolbar-title {
+              color:          #00c8e8 !important;
+              font-family:    'Rajdhani', sans-serif !important;
+              font-weight:    700 !important;
+              letter-spacing: 0.15em !important;
+              text-transform: uppercase !important;
+            }
+            .fc-button {
+              background:    #0e2a35 !important;
+              border:        1px solid #006878 !important;
+              border-radius: 1px !important;
+              color:         #00c8e8 !important;
+              font-family:   'Rajdhani', sans-serif !important;
+              letter-spacing: 0.08em !important;
+              text-transform: uppercase !important;
+            }
+            .fc-button:hover {
+              background: #006878 !important;
+            }
+            .fc-scrollgrid {
+              border-color: #0e2a35 !important;
+            }
+            td, th {
+              border-color: #0e2a35 !important;
+            }
