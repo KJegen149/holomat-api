@@ -28,3 +28,6 @@ websockets>=12.0
 
 # ── Home Assistant MQTT bridge (Phase 3) ──────────────────────────────────
 paho-mqtt>=2.0.0
+
+# ── AI / Vision (Phase 4 — object identification) ─────────────────────────
+openai>=1.0.0
