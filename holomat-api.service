@@ -1,5 +1,5 @@
 [Unit]
-Description=Holomat API Server (JARVIS Holomat v0.2.0)
+Description=Holomat API Server (JARVIS Holomat v0.3.0)
 After=network-online.target smbd.service
 Wants=network-online.target
 
@@ -31,6 +31,13 @@ Environment=OPENSCAD_BIN=openscad
 
 # ── Camera (Phase 1+) ──────────────────────────────────────────────────────
 Environment=CAMERA_DEVICE=0
+
+# ── Home Assistant (Phase 3) ──────────────────────────────────────────────
+Environment=HA_URL=https://ha.nannerserver.com
+Environment=HA_MQTT_HOST=                       # REQUIRED — set to your Mosquitto broker IP
+Environment=HA_MQTT_PORT=1883
+Environment=HA_MQTT_USER=Jarvis_Holomat
+Environment=HA_MQTT_PASS=                       # REQUIRED — set to Jarvis_Holomat password
 
 # ── Object ID — GPT-4o Vision (Phase 4) ───────────────────────────────────
 # Set after install: sudo systemctl edit holomat-api

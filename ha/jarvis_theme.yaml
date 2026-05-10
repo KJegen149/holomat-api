@@ -1,0 +1,73 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# JARVIS HA Theme
+# Drop this file in your HA config directory:  config/themes/jarvis.yaml
+# Then in configuration.yaml add:
+#
+#   frontend:
+#     themes: !include_dir_merge_named themes
+#     extra_module_url:
+#       - /hacsfiles/lovelace-card-mod/card-mod.js  # (auto-added by card-mod HACS install)
+#
+# Also add Rajdhani + JetBrains Mono via a Lovelace resource:
+#   Settings → Dashboards → ⋮ → Resources → Add
+#   URL: https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=JetBrains+Mono:ital,wght@0,400;0,600&display=swap
+#   Type: Stylesheet
+#
+# Apply the theme:  User profile → Theme → JARVIS
+# ─────────────────────────────────────────────────────────────────────────────
+
+JARVIS:
+  # ── Backgrounds ────────────────────────────────────────────────────────────
+  primary-background-color:    "#050508"
+  secondary-background-color:  "#0a0d12"
+  card-background-color:       "#0a0d12"
+
+  # ── Text ────────────────────────────────────────────────────────────────────
+  primary-text-color:          "#c8f0f8"
+  secondary-text-color:        "#3a7a8a"
+  text-primary-color:          "#c8f0f8"
+  disabled-text-color:         "#006878"
+
+  # ── Accent / action colors ──────────────────────────────────────────────────
+  primary-color:               "#00c8e8"
+  accent-color:                "#e8a020"
+
+  # ── State colors ────────────────────────────────────────────────────────────
+  error-color:                 "#e83040"
+  warning-color:               "#e8a020"
+  success-color:               "#00ff88"
+  info-color:                  "#00c8e8"
+
+  # ── Dividers / borders ──────────────────────────────────────────────────────
+  divider-color:               "#0e2a35"
+
+  # ── Sidebar ─────────────────────────────────────────────────────────────────
+  sidebar-background-color:         "#050508"
+  sidebar-text-color:               "#3a7a8a"
+  sidebar-selected-text-color:      "#00c8e8"
+  sidebar-icon-color:               "#3a7a8a"
+  sidebar-selected-icon-color:      "#00c8e8"
+  sidebar-selected-background-color: "#0e2a35"
+
+  # ── Controls ────────────────────────────────────────────────────────────────
+  switch-checked-color:        "#00c8e8"
+  switch-checked-button-color: "#00c8e8"
+  switch-unchecked-color:      "#0e2a35"
+  slider-color:                "#00c8e8"
+  slider-secondary-color:      "#0e2a35"
+
+  # ── Header (top app bar in non-kiosk mode) ──────────────────────────────────
+  app-header-background-color: "#050508"
+  app-header-text-color:       "#00c8e8"
+
+  # ── Tab bar ─────────────────────────────────────────────────────────────────
+  paper-tabs-selection-bar-color: "#00c8e8"
+
+  # ── Material design overrides ───────────────────────────────────────────────
+  --mdc-theme-primary:         "#00c8e8"
+  --mdc-theme-surface:         "#0a0d12"
+  --mdc-theme-background:      "#050508"
+  --mdc-typography-font-family: "'Rajdhani', sans-serif"
+
+  # ── card-mod global panel background ───────────────────────────────────────
+  # (requires card-mod panel styling — see jarvis_dashboard.yaml)
