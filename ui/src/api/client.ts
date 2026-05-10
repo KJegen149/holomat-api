@@ -24,6 +24,8 @@ export interface HealthResponse {
     ws_clients: number
     cf_api_url: string
     cf_api_key_set: boolean
+    ha_bridge: boolean
+    ha_url: string
   }
 }
 

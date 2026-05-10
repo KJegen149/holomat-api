@@ -11,14 +11,15 @@ from core.camera import camera
 from core.printer import is_configured as printer_configured
 from core.slicer import orca_available, openscad_available
 from core.smb_watcher import watcher as smb_watcher
+from core.ha_bridge import ha_bridge
 from api.websocket import manager as ws_manager
 from core.logger import get_logger
 
 log = get_logger(__name__)
 router = APIRouter()
 
-VERSION = "0.2.0"
-BUILD_PHASE = "Phase 2 — UI Shell"
+VERSION = "0.3.0"
+BUILD_PHASE = "Phase 3 — HA Embedding"
 
 
 @router.get("/health")
@@ -46,10 +47,12 @@ async def health() -> JSONResponse:
             "openscad": openscad_available(),
         },
         "services": {
-            "smb_watcher": smb_watcher.running,
-            "ws_clients": ws_manager.connection_count,
-            "cf_api_url": os.getenv("CF_API_URL", ""),
+            "smb_watcher":    smb_watcher.running,
+            "ws_clients":     ws_manager.connection_count,
+            "cf_api_url":     os.getenv("CF_API_URL", ""),
             "cf_api_key_set": bool(os.getenv("CF_API_KEY", "")),
+            "ha_bridge":      ha_bridge.running,
+            "ha_url":         os.getenv("HA_URL", ""),
         },
     })
 

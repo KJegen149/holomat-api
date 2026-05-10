@@ -21,11 +21,12 @@ function build(health: HealthResponse | null, error: string | null): Check[] {
     { id: 'orc',   state: 'pending', detail: 'ORCA SLICER' },
     { id: 'osc',   state: 'pending', detail: 'OPENSCAD' },
     { id: 'cf',    state: 'pending', detail: 'CLOUDFLARE API' },
+    { id: 'ha',    state: 'pending', detail: 'HOME ASSISTANT' },
   ]
 
   if (!health) return [
     'API SERVER', 'CALIBRATION DATA', 'CAMERA DEVICE',
-    'PRINTER CONFIG', 'ORCA SLICER', 'OPENSCAD', 'CLOUDFLARE API',
+    'PRINTER CONFIG', 'ORCA SLICER', 'OPENSCAD', 'CLOUDFLARE API', 'HOME ASSISTANT',
   ].map((d, i) => ({ id: String(i), state: 'pending' as S, detail: d }))
 
   const { calibration: c, hardware: hw, services: sv } = health
@@ -46,6 +47,12 @@ function build(health: HealthResponse | null, error: string | null): Check[] {
       detail: hw.openscad ? 'OPENSCAD — FOUND' : 'OPENSCAD — NOT FOUND' },
     { id: 'cf',  state: sv.cf_api_key_set ? 'ok' : 'warn',
       detail: sv.cf_api_key_set ? 'CLOUDFLARE API — CONFIGURED' : 'CLOUDFLARE API — KEY MISSING' },
+    { id: 'ha',  state: sv.ha_bridge ? 'ok' : sv.ha_url ? 'warn' : 'warn',
+      detail: sv.ha_bridge
+        ? 'HOME ASSISTANT — BRIDGE ACTIVE'
+        : sv.ha_url
+          ? 'HOME ASSISTANT — BRIDGE OFFLINE'
+          : 'HOME ASSISTANT — NOT CONFIGURED' },
   ]
 }
 
