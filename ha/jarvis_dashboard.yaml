@@ -1,44 +1,15 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # JARVIS Dashboard — Home Assistant Lovelace configuration
-# Phase 3 — Holomat / Home Assistant Embedding
-#
-# PREREQUISITES (one-time setup):
-#   1. Apply JARVIS theme:  Profile → Theme → JARVIS
-#      (requires jarvis_theme.yaml in config/themes/ and frontend: themes: in configuration.yaml)
-#   2. HACS frontend deps:
-#        - card-mod          (CSS theming — required for full styling)
-#   3. Add fonts as a Lovelace resource:
-#        Settings → Dashboards → ⋮ → Resources → Add Resource
-#        URL:  https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap
-#        Type: Stylesheet
-#   4. Allow iframe embedding — HA configuration.yaml:
-#        http:
-#          use_x_forwarded_for: true
-#          trusted_proxies:
-#            - 10.11.12.0/24   # adjust to your subnet
-#   5. Holomat MQTT entities appear automatically once HA_MQTT_HOST is set.
-#      The "HOLOMAT" tab entities require NO customization.
-#
-# JARVIS USER (kiosk access):
-#   Settings → People → Jarvis → restrict to this dashboard only.
-#   Create a Long-Lived Access Token for that user if needed for auto-login.
-#
-# ENTITY CUSTOMIZATION:
-#   Lines marked   # ← CUSTOMIZE   must be replaced with your entity IDs.
-#   All Holomat entities (binary_sensor.holomat_*, sensor.holomat_*) are auto-created.
+# Phase 3 — rebuilt with real entity IDs from ha_states export
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Shared card-mod style snippets ─────────────────────────────────────────
-# These are referenced below via YAML anchors to reduce repetition.
-# ────────────────────────────────────────────────────────────────────────────
-_card_style: &card_style
+_card: &card
   card_mod:
     style: |
       ha-card {
         background:    #0a0d12;
         border:        1px solid #0e2a35;
         border-radius: 2px;
-        color:         #c8f0f8;
         box-shadow:    0 0 12px rgba(0,200,232,0.06);
       }
       .card-header, .header {
@@ -51,11 +22,9 @@ _card_style: &card_style
         padding:        12px 16px 6px !important;
         border-bottom:  1px solid #0e2a35 !important;
       }
-      .card-content {
-        padding: 8px 16px 12px !important;
-      }
+      .card-content { padding: 8px 16px 12px !important; }
 
-_entities_row_style: &entities_row_style
+_rows: &rows
   card_mod:
     style: |
       ha-card {
@@ -74,16 +43,12 @@ _entities_row_style: &entities_row_style
         padding:        12px 16px 6px !important;
         border-bottom:  1px solid #0e2a35 !important;
       }
-      .card-content {
-        padding: 4px 0 8px !important;
-      }
+      .card-content { padding: 4px 0 8px !important; }
       hui-generic-entity-row {
         border-bottom: 1px solid #0e2a35 !important;
         padding: 8px 16px !important;
       }
-      hui-generic-entity-row:last-child {
-        border-bottom: none !important;
-      }
+      hui-generic-entity-row:last-child { border-bottom: none !important; }
       .info, .info > span:first-child {
         font-family:    'Rajdhani', sans-serif !important;
         font-size:      13px !important;
@@ -91,129 +56,57 @@ _entities_row_style: &entities_row_style
         text-transform: uppercase !important;
         color:          #c8f0f8 !important;
       }
-      .secondary {
-        color: #3a7a8a !important;
-        font-size: 10px !important;
-        letter-spacing: 0.05em !important;
-      }
-      state-badge {
-        color: #00c8e8 !important;
-      }
+      .secondary { color: #3a7a8a !important; font-size: 10px !important; }
+      state-badge { color: #00c8e8 !important; }
 
-_markdown_header_style: &markdown_header_style
+_header: &header
   card_mod:
     style: |
-      ha-card {
-        background:    transparent;
-        border:        none;
-        box-shadow:    none;
-      }
-      ha-markdown {
-        color:          #3a7a8a !important;
-        font-family:    'Rajdhani', sans-serif !important;
-        font-size:      11px !important;
-        letter-spacing: 0.1em !important;
-        text-transform: uppercase !important;
-      }
-      ha-markdown h2 {
-        color:          #00c8e8 !important;
-        font-size:      15px !important;
-        font-weight:    700 !important;
-        letter-spacing: 0.25em !important;
-        border-bottom:  1px solid #0e2a35 !important;
-        padding-bottom: 6px !important;
-        margin-bottom:  4px !important;
-      }
-      ha-markdown em {
-        color:     #3a7a8a !important;
-        font-style: normal !important;
-        font-size:  10px !important;
-      }
+      ha-card { background: transparent; border: none; box-shadow: none; }
+      ha-markdown { color: #3a7a8a !important; font-family: 'Rajdhani', sans-serif !important; font-size: 11px !important; letter-spacing: 0.1em !important; text-transform: uppercase !important; }
+      ha-markdown h2 { color: #00c8e8 !important; font-size: 15px !important; font-weight: 700 !important; letter-spacing: 0.25em !important; border-bottom: 1px solid #0e2a35 !important; padding-bottom: 6px !important; margin-bottom: 4px !important; }
+      ha-markdown em { color: #3a7a8a !important; font-style: normal !important; font-size: 10px !important; }
 
-_glance_style: &glance_style
+_glance: &glance
   card_mod:
     style: |
-      ha-card {
-        background:    #0a0d12;
-        border:        1px solid #0e2a35;
-        border-radius: 2px;
-        box-shadow:    0 0 12px rgba(0,200,232,0.06);
-      }
-      .card-header {
-        color:          #00c8e8 !important;
-        font-family:    'Rajdhani', sans-serif !important;
-        font-weight:    700 !important;
-        font-size:      13px !important;
-        letter-spacing: 0.18em !important;
-        text-transform: uppercase !important;
-        border-bottom:  1px solid #0e2a35 !important;
-      }
-      .entities {
-        padding: 8px 0 !important;
-      }
-      .entity {
-        padding: 4px 8px !important;
-      }
-      .entity .name {
-        font-family:    'Rajdhani', sans-serif !important;
-        font-size:      10px !important;
-        letter-spacing: 0.12em !important;
-        text-transform: uppercase !important;
-        color:          #3a7a8a !important;
-      }
-      .entity .state {
-        font-family: 'JetBrains Mono', monospace !important;
-        font-size:   12px !important;
-        color:       #00c8e8 !important;
-      }
+      ha-card { background: #0a0d12; border: 1px solid #0e2a35; border-radius: 2px; box-shadow: 0 0 12px rgba(0,200,232,0.06); }
+      .card-header { color: #00c8e8 !important; font-family: 'Rajdhani', sans-serif !important; font-weight: 700 !important; font-size: 13px !important; letter-spacing: 0.18em !important; text-transform: uppercase !important; border-bottom: 1px solid #0e2a35 !important; }
+      .entity .name { font-family: 'Rajdhani', sans-serif !important; font-size: 10px !important; letter-spacing: 0.12em !important; text-transform: uppercase !important; color: #3a7a8a !important; }
+      .entity .state { font-family: 'JetBrains Mono', monospace !important; font-size: 12px !important; color: #00c8e8 !important; }
 
-_gauge_style: &gauge_style
+_graph: &graph
   card_mod:
     style: |
-      ha-card {
-        background:    #0a0d12;
-        border:        1px solid #0e2a35;
-        border-radius: 2px;
-        box-shadow:    0 0 12px rgba(0,200,232,0.06);
-      }
-      .title {
-        font-family:    'Rajdhani', sans-serif !important;
-        color:          #00c8e8 !important;
-        font-size:      13px !important;
-        letter-spacing: 0.18em !important;
-        text-transform: uppercase !important;
-      }
-      .measurement {
-        font-family: 'JetBrains Mono', monospace !important;
-        color:       #c8f0f8 !important;
-      }
+      ha-card { background: #0a0d12; border: 1px solid #0e2a35; border-radius: 2px; box-shadow: 0 0 12px rgba(0,200,232,0.06); }
+      .card-header { color: #00c8e8 !important; font-family: 'Rajdhani', sans-serif !important; font-weight: 700 !important; font-size: 13px !important; letter-spacing: 0.18em !important; text-transform: uppercase !important; border-bottom: 1px solid #0e2a35 !important; }
 
-_history_style: &history_style
+_gauge: &gauge
   card_mod:
     style: |
-      ha-card {
-        background:    #0a0d12;
-        border:        1px solid #0e2a35;
-        border-radius: 2px;
-        box-shadow:    0 0 12px rgba(0,200,232,0.06);
-      }
-      .card-header {
-        color:          #00c8e8 !important;
-        font-family:    'Rajdhani', sans-serif !important;
-        font-weight:    700 !important;
-        font-size:      13px !important;
-        letter-spacing: 0.18em !important;
-        text-transform: uppercase !important;
-        border-bottom:  1px solid #0e2a35 !important;
-      }
+      ha-card { background: #0a0d12; border: 1px solid #0e2a35; border-radius: 2px; box-shadow: 0 0 12px rgba(0,200,232,0.06); }
+      .title { font-family: 'Rajdhani', sans-serif !important; color: #00c8e8 !important; font-size: 13px !important; letter-spacing: 0.18em !important; text-transform: uppercase !important; }
+      .measurement { font-family: 'JetBrains Mono', monospace !important; color: #c8f0f8 !important; }
+
+_media: &media
+  card_mod:
+    style: |
+      ha-card { background: #0a0d12; border: 1px solid #0e2a35; border-radius: 2px; box-shadow: 0 0 12px rgba(0,200,232,0.06); color: #c8f0f8; }
+      .title { font-family: 'Rajdhani', sans-serif !important; color: #00c8e8 !important; letter-spacing: 0.15em !important; text-transform: uppercase !important; }
+      ha-icon-button { color: #00c8e8 !important; }
+
+_picture: &picture
+  card_mod:
+    style: |
+      ha-card { border: 1px solid #0e2a35; border-radius: 2px; overflow: hidden; box-shadow: 0 0 12px rgba(0,200,232,0.06); }
+      .label { font-family: 'Rajdhani', sans-serif !important; color: #00c8e8 !important; letter-spacing: 0.15em !important; text-transform: uppercase !important; }
 
 # ══════════════════════════════════════════════════════════════════════════════
 title: JARVIS
 views:
 
   # ══════════════════════════════════════════════════════════════════════════
-  # TAB 1 — HOLOMAT STATUS
-  # Auto-populated via MQTT discovery — no entity customization needed here.
+  # TAB 1 — HOLOMAT
   # ══════════════════════════════════════════════════════════════════════════
   - title: HOLOMAT
     icon: mdi:grid-large
@@ -222,14 +115,13 @@ views:
       style:
         .: |
           background: #050508 !important;
-
     cards:
 
       - type: markdown
         content: |
           ## ◈ HOLOMAT — SMART FABRICATION SURFACE
-          *Real-time telemetry via MQTT discovery*
-        <<: *markdown_header_style
+          *KJLC-AI-01 // Real-time telemetry via MQTT*
+        <<: *header
 
       - type: glance
         title: System Overview
@@ -240,39 +132,36 @@ views:
           - entity: binary_sensor.holomat_camera_online
             name: Camera
           - entity: binary_sensor.holomat_printer_configured
-            name: Printer
-          - entity: sensor.holomat_ws_clients
+            name: Printer Link
+          - entity: sensor.holomat_active_clients
             name: Clients
-        <<: *glance_style
+        <<: *glance
 
       - type: entities
         title: Calibration
         entities:
           - entity: binary_sensor.holomat_calibration_valid
             name: Valid
-          - type: custom:mod-card
-            card:
-              type: attribute
-              entity: sensor.holomat_calibration_rmse
-              name: RMSE (px)
           - entity: sensor.holomat_calibration_rmse
             name: RMSE
           - entity: sensor.holomat_calibration_points
             name: Point Count
-        <<: *entities_row_style
+        <<: *rows
 
       - type: entities
         title: System
         entities:
-          - entity: sensor.holomat_phase
+          - entity: sensor.holomat_current_phase
             name: Phase
           - entity: binary_sensor.holomat_camera_online
             name: Camera Online
           - entity: binary_sensor.holomat_printer_configured
             name: Printer Configured
-          - entity: sensor.holomat_ws_clients
+          - entity: sensor.holomat_active_clients
             name: Active WebSocket Clients
-        <<: *entities_row_style
+          - entity: device_tracker.kjlc_ai_01
+            name: KJLC-AI-01
+        <<: *rows
 
       - type: history-graph
         title: Calibration RMSE — 24h
@@ -280,11 +169,22 @@ views:
         entities:
           - entity: sensor.holomat_calibration_rmse
             name: RMSE (px)
-        <<: *history_style
+        <<: *graph
+
+      - type: entities
+        title: GitHub — holomat-api
+        entities:
+          - entity: sensor.kjegen149_holomat_api_latest_commit
+            name: Latest Commit
+          - entity: sensor.kjegen149_holomat_api_pull_requests
+            name: Open PRs
+          - entity: sensor.kjegen149_holomat_api_stars
+            name: Stars
+        <<: *rows
 
 
   # ══════════════════════════════════════════════════════════════════════════
-  # TAB 2 — HOME OVERVIEW
+  # TAB 2 — HOME
   # ══════════════════════════════════════════════════════════════════════════
   - title: HOME
     icon: mdi:home-outline
@@ -293,60 +193,92 @@ views:
       style:
         .: |
           background: #050508 !important;
-
     cards:
 
       - type: markdown
         content: |
           ## ◈ HOME — OVERVIEW
-          *Lights, climate, primary controls*
-        <<: *markdown_header_style
+          *Lights, presence, security*
+        <<: *header
 
-      - type: light
-        title: Lights
-        entity: light.living_room                       # ← CUSTOMIZE
-        <<: *card_style
-
-      - type: thermostat
-        entity: climate.main_thermostat                 # ← CUSTOMIZE
-        name: Climate
-        <<: *card_style
+      - type: glance
+        title: Presence
+        columns: 2
+        entities:
+          - entity: person.kyle
+            name: Kyle
+          - entity: person.lexie
+            name: Lexie
+        <<: *glance
 
       - type: entities
-        title: Switches
+        title: Lights
         entities:
-          - entity: switch.garage_door                  # ← CUSTOMIZE
-          - entity: switch.front_porch_light            # ← CUSTOMIZE
-          - entity: switch.back_yard_light              # ← CUSTOMIZE
-        <<: *entities_row_style
+          - entity: light.livingroom_lights
+            name: Livingroom
+          - entity: light.livingroom_lamp
+            name: Lamp
+          - entity: light.master_bedroom
+            name: Master Bedroom
+          - entity: light.bedroom_light1
+            name: Bedroom Light 1
+          - entity: light.wiz_rgbw_tunable_539146
+            name: Bedroom Light 2
+          - entity: light.basement_lights
+            name: Basement
+        <<: *rows
+
+      - type: entities
+        title: Scenes
+        entities:
+          - entity: scene.comfy_livingroom
+            name: Comfy — Living Room
+          - entity: scene.brightest_day_livingroom
+            name: Brightest Day — Living Room
+          - entity: scene.comfy
+            name: Comfy — Bedroom
+          - entity: scene.brightest_day
+            name: Brightest Day — Bedroom
+          - entity: scene.romance
+            name: Romance
+          - entity: scene.bed_time
+            name: Bed Time
+        <<: *rows
+
+      - type: thermostat
+        entity: climate.main_floor        # ← verify entity ID — none found in states export
+        name: Main Floor
+        card_mod:
+          style: |
+            ha-card { background: #0a0d12; border: 1px solid #0e2a35; border-radius: 2px; box-shadow: 0 0 12px rgba(0,200,232,0.06); color: #c8f0f8; }
+
+      - type: entities
+        title: Security
+        entities:
+          - entity: lock.front_door
+            name: Front Door
+          - entity: binary_sensor.front_door_door
+            name: Front Door Sensor
+          - entity: alarm_control_panel.doorbell_repeater_961f_security_system
+            name: Doorbell Security
+        <<: *rows
+
+      - type: entities
+        title: Vacuum
+        entities:
+          - entity: vacuum.clean_latifah
+            name: Clean Latifah
+        <<: *rows
 
       - type: weather-forecast
-        entity: weather.home                            # ← CUSTOMIZE
+        entity: weather.forecast_home
         forecast_type: daily
         card_mod:
           style: |
-            ha-card {
-              background:    #0a0d12;
-              border:        1px solid #0e2a35;
-              border-radius: 2px;
-              box-shadow:    0 0 12px rgba(0,200,232,0.06);
-            }
-            .card-header {
-              color:          #00c8e8 !important;
-              font-family:    'Rajdhani', sans-serif !important;
-              font-weight:    700 !important;
-              letter-spacing: 0.18em !important;
-              text-transform: uppercase !important;
-              border-bottom:  1px solid #0e2a35 !important;
-            }
-            .temp {
-              color: #c8f0f8 !important;
-              font-family: 'JetBrains Mono', monospace !important;
-            }
-            .templow {
-              color: #3a7a8a !important;
-              font-family: 'JetBrains Mono', monospace !important;
-            }
+            ha-card { background: #0a0d12; border: 1px solid #0e2a35; border-radius: 2px; box-shadow: 0 0 12px rgba(0,200,232,0.06); }
+            .card-header { color: #00c8e8 !important; font-family: 'Rajdhani', sans-serif !important; font-weight: 700 !important; letter-spacing: 0.18em !important; text-transform: uppercase !important; border-bottom: 1px solid #0e2a35 !important; }
+            .temp { color: #c8f0f8 !important; font-family: 'JetBrains Mono', monospace !important; }
+            .templow { color: #3a7a8a !important; font-family: 'JetBrains Mono', monospace !important; }
 
 
   # ══════════════════════════════════════════════════════════════════════════
@@ -359,103 +291,84 @@ views:
       style:
         .: |
           background: #050508 !important;
-
     cards:
 
       - type: markdown
         content: |
-          ## ◈ MEDIA — PLAYERS & CAMERAS
-          *Cameras and media control*
-        <<: *markdown_header_style
+          ## ◈ MEDIA — DISPLAYS & CAMERAS
+          *TVs, PlayStation, cameras*
+        <<: *header
 
       - type: media-control
-        entity: media_player.living_room_tv             # ← CUSTOMIZE
-        card_mod:
-          style: |
-            ha-card {
-              background:    #0a0d12;
-              border:        1px solid #0e2a35;
-              border-radius: 2px;
-              box-shadow:    0 0 12px rgba(0,200,232,0.06);
-              color:         #c8f0f8;
-            }
-            .title {
-              font-family:    'Rajdhani', sans-serif !important;
-              color:          #00c8e8 !important;
-              letter-spacing: 0.15em !important;
-              text-transform: uppercase !important;
-            }
-            ha-icon-button {
-              color: #00c8e8 !important;
-            }
+        entity: media_player.livingroom_tv
+        <<: *media
+
+      - type: entities
+        title: Living Room TV — Controls
+        entities:
+          - entity: remote.livingroom_tv
+            name: Power / Remote
+        <<: *rows
 
       - type: media-control
-        entity: media_player.bedroom_speaker            # ← CUSTOMIZE
-        card_mod:
-          style: |
-            ha-card {
-              background:    #0a0d12;
-              border:        1px solid #0e2a35;
-              border-radius: 2px;
-              box-shadow:    0 0 12px rgba(0,200,232,0.06);
-              color:         #c8f0f8;
-            }
-            .title {
-              font-family:    'Rajdhani', sans-serif !important;
-              color:          #00c8e8 !important;
-              letter-spacing: 0.15em !important;
-              text-transform: uppercase !important;
-            }
-            ha-icon-button {
-              color: #00c8e8 !important;
-            }
+        entity: media_player.kyle_bedroom_tv
+        <<: *media
+
+      - type: entities
+        title: Bedroom TV — Controls
+        entities:
+          - entity: remote.kyle_bedroom_tv
+            name: Power / Remote
+          - entity: select.kyle_bedroom_tv_application
+            name: App
+        <<: *rows
+
+      - type: media-control
+        entity: media_player.playstation_5
+        <<: *media
 
       - type: picture-glance
-        title: Front Door
-        entity: camera.front_door                       # ← CUSTOMIZE
-        camera_image: camera.front_door                 # ← CUSTOMIZE
+        title: KJLC-CAM-01
+        entity: camera.amcrest_camera
+        camera_image: camera.amcrest_camera
         entities:
-          - entity: binary_sensor.front_door_motion     # ← CUSTOMIZE
-        card_mod:
-          style: |
-            ha-card {
-              border:        1px solid #0e2a35;
-              border-radius: 2px;
-              overflow:      hidden;
-              box-shadow:    0 0 12px rgba(0,200,232,0.06);
-            }
-            .label {
-              font-family:    'Rajdhani', sans-serif !important;
-              color:          #00c8e8 !important;
-              letter-spacing: 0.15em !important;
-              text-transform: uppercase !important;
-            }
+          - entity: binary_sensor.kjlc_cam_01_motion_detected
+            name: Motion
+          - entity: binary_sensor.kjlc_cam_01_audio_detected
+            name: Audio
+          - entity: binary_sensor.kjlc_cam_01_online
+            name: Online
+        <<: *picture
 
       - type: picture-glance
-        title: Backyard
-        entity: camera.backyard                         # ← CUSTOMIZE
-        camera_image: camera.backyard                   # ← CUSTOMIZE
+        title: KASACAM01
+        entity: camera.kasacam01
+        camera_image: camera.kasacam01
         entities:
-          - entity: binary_sensor.backyard_motion       # ← CUSTOMIZE
-        card_mod:
-          style: |
-            ha-card {
-              border:        1px solid #0e2a35;
-              border-radius: 2px;
-              overflow:      hidden;
-              box-shadow:    0 0 12px rgba(0,200,232,0.06);
-            }
-            .label {
-              font-family:    'Rajdhani', sans-serif !important;
-              color:          #00c8e8 !important;
-              letter-spacing: 0.15em !important;
-              text-transform: uppercase !important;
-            }
+          - entity: binary_sensor.kasacam01
+            name: Motion
+        <<: *picture
+
+      - type: entities
+        title: PlayStation Network — RipeNanners
+        entities:
+          - entity: sensor.ripenanners_online_status
+            name: Status
+          - entity: sensor.ripenanners_now_playing
+            name: Now Playing
+          - entity: sensor.ripenanners_trophy_level
+            name: Trophy Level
+          - entity: sensor.ripenanners_platinum_trophies
+            name: Platinum
+          - entity: sensor.ripenanners_gold_trophies
+            name: Gold
+          - entity: sensor.ripenanners_silver_trophies
+            name: Silver
+        <<: *rows
 
 
   # ══════════════════════════════════════════════════════════════════════════
-  # TAB 4 — 3D PRINTER  (Bambu P1S)
-  # Install: HACS → Bambu Lab integration for full entity set
+  # TAB 4 — PRINTER  (NANN3R1S = Bambu P1S)
   # ══════════════════════════════════════════════════════════════════════════
   - title: PRINTER
     icon: mdi:printer-3d
@@ -464,33 +377,37 @@ views:
       style:
         .: |
           background: #050508 !important;
-
     cards:
 
       - type: markdown
         content: |
-          ## ◈ BAMBU P1S — PRINT MONITOR
-          *Install the Bambu Lab HACS integration for full entity set*
-        <<: *markdown_header_style
+          ## ◈ NANN3R1S — BAMBU P1S
+          *Live print telemetry via Bambu Lab integration*
+        <<: *header
 
-      - type: entities
+      - type: glance
         title: Printer Status
+        columns: 3
         entities:
-          - entity: sensor.bambu_p1s_print_status        # ← CUSTOMIZE
+          - entity: binary_sensor.nann3r1s_online
+            name: Online
+          - entity: sensor.nann3r1s_print_status
             name: Status
-          - entity: sensor.bambu_p1s_current_file        # ← CUSTOMIZE
-            name: File
-          - entity: sensor.bambu_p1s_print_progress      # ← CUSTOMIZE
-            name: Progress
-          - entity: sensor.bambu_p1s_nozzle_temperature  # ← CUSTOMIZE
-            name: Nozzle
-          - entity: sensor.bambu_p1s_bed_temperature     # ← CUSTOMIZE
-            name: Bed
-        <<: *entities_row_style
+          - entity: sensor.nann3r1s_current_stage
+            name: Stage
+        <<: *glance
+
+      - type: picture-entity
+        entity: camera.nann3r1s_camera
+        name: Print Camera
+        show_state: false
+        card_mod:
+          style: |
+            ha-card { border: 1px solid #0e2a35; border-radius: 2px; overflow: hidden; box-shadow: 0 0 12px rgba(0,200,232,0.06); }
 
       - type: gauge
         title: Print Progress
-        entity: sensor.bambu_p1s_print_progress          # ← CUSTOMIZE
+        entity: sensor.nann3r1s_print_progress
         min: 0
         max: 100
         unit: "%"
@@ -502,29 +419,100 @@ views:
             color: "#e8a020"
           - from: 75
             color: "#00ff88"
-        <<: *gauge_style
+        <<: *gauge
+
+      - type: entities
+        title: Job Info
+        entities:
+          - entity: sensor.nann3r1s_task_name
+            name: Task
+          - entity: sensor.nann3r1s_gcode_filename
+            name: File
+          - entity: sensor.nann3r1s_current_layer
+            name: Layer
+          - entity: sensor.nann3r1s_total_layer_count
+            name: Total Layers
+          - entity: sensor.nann3r1s_remaining_time
+            name: Remaining
+          - entity: sensor.nann3r1s_end_time
+            name: Est. End
+          - entity: select.nann3r1s_printing_speed
+            name: Speed Profile
+        <<: *rows
+
+      - type: entities
+        title: Temperatures
+        entities:
+          - entity: sensor.nann3r1s_nozzle_temperature
+            name: Nozzle
+          - entity: number.nann3r1s_nozzle_target_temperature
+            name: Nozzle Target
+          - entity: sensor.nann3r1s_bed_temperature
+            name: Bed
+          - entity: number.nann3r1s_bed_target_temperature
+            name: Bed Target
+          - entity: sensor.nann3r1s_temperature
+            name: Chamber
+          - entity: sensor.nann3r1s_humidity
+            name: Humidity
+        <<: *rows
+
+      - type: history-graph
+        title: Temperatures — 2h
+        hours_to_show: 2
+        entities:
+          - entity: sensor.nann3r1s_nozzle_temperature
+            name: Nozzle
+          - entity: sensor.nann3r1s_bed_temperature
+            name: Bed
+          - entity: sensor.nann3r1s_temperature
+            name: Chamber
+        <<: *graph
+
+      - type: entities
+        title: Controls
+        entities:
+          - entity: button.nann3r1s_pause_printing
+            name: Pause
+          - entity: button.nann3r1s_resume_printing
+            name: Resume
+          - entity: button.nann3r1s_stop_printing
+            name: Stop
+          - entity: switch.nann3r1s_enable_camera
+            name: Camera
+          - entity: binary_sensor.nann3r1s_print_error
+            name: Print Error
+          - entity: binary_sensor.nann3r1s_hms_errors
+            name: HMS Errors
+        <<: *rows
+
+      - type: entities
+        title: Filament Trays
+        entities:
+          - entity: sensor.nann3r1s_active_tray
+            name: Active Tray
+          - entity: sensor.nann3r1s_tray_1
+            name: Tray 1
+          - entity: sensor.nann3r1s_tray_2
+            name: Tray 2
+          - entity: sensor.nann3r1s_tray_3
+            name: Tray 3
+          - entity: sensor.nann3r1s_tray_4
+            name: Tray 4
+          - entity: sensor.nann3r1s_external_spool
+            name: External Spool
+        <<: *rows
 
       - type: entities
         title: Holomat Printer Link
         entities:
           - entity: binary_sensor.holomat_printer_configured
             name: Configured in Holomat
-        <<: *entities_row_style
-
-      - type: history-graph
-        title: Temperatures — 6h
-        hours_to_show: 6
-        entities:
-          - entity: sensor.bambu_p1s_nozzle_temperature  # ← CUSTOMIZE
-            name: Nozzle
-          - entity: sensor.bambu_p1s_bed_temperature     # ← CUSTOMIZE
-            name: Bed
-        <<: *history_style
+        <<: *rows
 
 
   # ══════════════════════════════════════════════════════════════════════════
-  # TAB 5 — NETWORK  (Unifi)
-  # Settings → Integrations → Add Integration → UniFi Network
+  # TAB 5 — NETWORK  (Unifi UCG-01 + USW48-01 + ACPro-02/03)
   # ══════════════════════════════════════════════════════════════════════════
   - title: NETWORK
     icon: mdi:lan
@@ -533,50 +521,156 @@ views:
       style:
         .: |
           background: #050508 !important;
-
     cards:
 
       - type: markdown
         content: |
           ## ◈ NETWORK — UNIFI
-          *Requires the UniFi Network integration*
-        <<: *markdown_header_style
+          *KJLC-UCG-01 gateway // USW48-01 // ACPro-02/03*
+        <<: *header
 
       - type: glance
-        title: WAN Overview
+        title: WAN
         columns: 3
         entities:
-          - entity: sensor.unifi_gateway_wan_download_speed   # ← CUSTOMIZE
+          - entity: sensor.kjlc_ucg_01_download_speed
             name: Download
-          - entity: sensor.unifi_gateway_wan_upload_speed     # ← CUSTOMIZE
+          - entity: sensor.kjlc_ucg_01_upload_speed
             name: Upload
-          - entity: sensor.unifi_gateway_clients              # ← CUSTOMIZE
-            name: Clients
-        <<: *glance_style
+          - entity: binary_sensor.kjlc_ucg_01_wan_status
+            name: WAN Status
+        <<: *glance
 
       - type: history-graph
-        title: WAN Speed — 6h
-        hours_to_show: 6
+        title: WAN Speed — 1h
+        hours_to_show: 1
         entities:
-          - entity: sensor.unifi_gateway_wan_download_speed   # ← CUSTOMIZE
+          - entity: sensor.kjlc_ucg_01_download_speed
             name: Download
-          - entity: sensor.unifi_gateway_wan_upload_speed     # ← CUSTOMIZE
+          - entity: sensor.kjlc_ucg_01_upload_speed
             name: Upload
-        <<: *history_style
+        <<: *graph
+
+      - type: entities
+        title: KJLC-UCG-01 — Gateway
+        entities:
+          - entity: sensor.kjlc_ucg_01_external_ip
+            name: External IP
+          - entity: sensor.kjlc_ucg_01_wan_status
+            name: WAN Status
+          - entity: sensor.kjlc_ucg_01_uptime
+            name: Uptime
+          - entity: sensor.kjlc_ucg_01_data_received
+            name: Data Received
+          - entity: sensor.kjlc_ucg_01_data_sent
+            name: Data Sent
+          - entity: sensor.kjlc_home_cloudflare_wan_latency
+            name: CF WAN Latency
+        <<: *rows
+
+      - type: entities
+        title: KJLC-USW48-01 — 48-Port Switch
+        entities:
+          - entity: sensor.kjlc_usw48_01_state
+            name: State
+          - entity: sensor.kjlc_usw48_01_clients
+            name: Clients
+          - entity: sensor.kjlc_usw48_01_cpu_utilization
+            name: CPU
+          - entity: sensor.kjlc_usw48_01_memory_utilization
+            name: Memory
+          - entity: sensor.kjlc_usw48_01_uptime
+            name: Uptime
+          - entity: button.kjlc_usw48_01_restart
+            name: Restart
+        <<: *rows
+
+      - type: entities
+        title: Access Points
+        entities:
+          - type: section
+            label: "KJLC_ACPro_02"
+          - entity: sensor.kjlc_acpro_02_state
+            name: State
+          - entity: sensor.kjlc_acpro_02_clients
+            name: Clients
+          - entity: sensor.kjlc_acpro_02_cpu_utilization
+            name: CPU
+          - entity: sensor.kjlc_acpro_02_uptime
+            name: Uptime
+          - type: section
+            label: "KJLC_ACPro_03"
+          - entity: sensor.ac_pro_state
+            name: State
+          - entity: sensor.ac_pro_clients
+            name: Clients
+          - entity: sensor.ac_pro_uptime
+            name: Uptime
+        <<: *rows
+
+      - type: entities
+        title: Guest Networks
+        entities:
+          - entity: switch.ellie_s_guests
+            name: Ellie's Guests
+          - entity: sensor.ellie_s_guests
+            name: Guest Clients
+          - entity: switch.ellie_s_hostages
+            name: Ellie's Hostages
+          - entity: sensor.ellie_s_hostages
+            name: Hostage Clients
+          - entity: switch.ellie_s_stuff
+            name: Ellie's Stuff
+        <<: *rows
+
+      - type: entities
+        title: VPN
+        entities:
+          - entity: switch.unifi_network_protonvpn
+            name: ProtonVPN
+          - entity: switch.unifi_network_protontunnel
+            name: ProtonTunnel
+          - entity: switch.unifi_network_openvpn_proton
+            name: OpenVPN Proton
+        <<: *rows
 
       - type: entities
         title: Key Hosts
         entities:
-          - entity: device_tracker.kjlc_ai_01                 # ← CUSTOMIZE
+          - entity: device_tracker.kjlc_ai_01
             name: KJLC-AI-01 (Holomat)
-          - entity: device_tracker.bambu_p1s                  # ← CUSTOMIZE
-            name: Bambu P1S
-        <<: *entities_row_style
+          - entity: device_tracker.kjlc_usw48_01
+            name: KJLC-USW48-01
+          - entity: device_tracker.diskstation
+            name: KJLC-NAS-01
+          - entity: device_tracker.kjlc_home
+            name: KJLC_Home
+          - entity: device_tracker.unifi_default_a0_60_32_07_ac_33
+            name: KJLC-CAM-01
+        <<: *rows
+
+      - type: entities
+        title: Service Uptime
+        entities:
+          - entity: sensor.home_assistant_status
+            name: Home Assistant
+          - entity: sensor.cf_workers_status
+            name: CF Workers
+          - entity: sensor.cloudflare_workers_status
+            name: Cloudflare Workers
+          - entity: sensor.mealie_status
+            name: Mealie
+          - entity: sensor.music_assistant_status
+            name: Music Assistant
+          - entity: sensor.pleximusv3_status
+            name: Plex
+          - entity: binary_sensor.cloudflared_running
+            name: Cloudflared
+        <<: *rows
 
 
   # ══════════════════════════════════════════════════════════════════════════
-  # TAB 6 — MUSIC ASSISTANT
-  # HACS → Integrations → Music Assistant
+  # TAB 6 — MUSIC
   # ══════════════════════════════════════════════════════════════════════════
   - title: MUSIC
     icon: mdi:music
@@ -585,49 +679,63 @@ views:
       style:
         .: |
           background: #050508 !important;
-
     cards:
 
       - type: markdown
         content: |
-          ## ◈ MUSIC ASSISTANT
-          *Requires the Music Assistant HACS integration*
-        <<: *markdown_header_style
+          ## ◈ MUSIC — JARVIS AUDIO SYSTEM
+          *Jarvis-01 (Bedroom) // Jarvis-02 (Living Room) // WiiM-01*
+        <<: *header
 
       - type: media-control
-        entity: media_player.music_assistant_player      # ← CUSTOMIZE
-        card_mod:
-          style: |
-            ha-card {
-              background:    #0a0d12;
-              border:        1px solid #0e2a35;
-              border-radius: 2px;
-              box-shadow:    0 0 12px rgba(0,200,232,0.06);
-              color:         #c8f0f8;
-            }
-            .title {
-              font-family:    'Rajdhani', sans-serif !important;
-              color:          #00c8e8 !important;
-              letter-spacing: 0.15em !important;
-              text-transform: uppercase !important;
-            }
-            ha-icon-button { color: #00c8e8 !important; }
+        entity: media_player.jarvis_02_media_player
+        <<: *media
+
+      - type: media-control
+        entity: media_player.jarvis_01_media_player
+        <<: *media
+
+      - type: media-control
+        entity: media_player.kjlc_wiim_01
+        <<: *media
+
+      - type: media-control
+        entity: media_player.living_room_speaker
+        <<: *media
 
       - type: entities
-        title: Active Players
+        title: Jarvis Satellites
         entities:
-          - entity: media_player.living_room_ma          # ← CUSTOMIZE
-            name: Living Room
-          - entity: media_player.kitchen_ma              # ← CUSTOMIZE
-            name: Kitchen
-          - entity: media_player.bedroom_ma              # ← CUSTOMIZE
-            name: Bedroom
-        <<: *entities_row_style
+          - entity: assist_satellite.lva_2ccf67f8f074_assist_satellite
+            name: Jarvis-01 (Bedroom)
+          - entity: assist_satellite.lva_2ccf67f8c8b4_assist_satellite
+            name: Jarvis-02 (Living Room)
+          - entity: switch.lva_2ccf67f8f074_mute
+            name: Jarvis-01 Mute
+          - entity: switch.lva_2ccf67f8c8b4_mute
+            name: Jarvis-02 Mute
+          - entity: number.lva_2ccf67f8f074_mic_volume
+            name: Jarvis-01 Mic Volume
+          - entity: number.lva_2ccf67f8c8b4_mic_volume
+            name: Jarvis-02 Mic Volume
+        <<: *rows
+
+      - type: entities
+        title: Voice Services
+        entities:
+          - entity: binary_sensor.whisper_running
+            name: Whisper (STT)
+          - entity: binary_sensor.piper_running
+            name: Piper (TTS)
+          - entity: sensor.whisper_cpu_percent
+            name: Whisper CPU
+          - entity: sensor.piper_cpu_percent
+            name: Piper CPU
+        <<: *rows
 
 
   # ══════════════════════════════════════════════════════════════════════════
   # TAB 7 — CALENDAR
-  # Configure calendar entities in HA (Google, iCal, local, etc.)
   # ══════════════════════════════════════════════════════════════════════════
   - title: CALENDAR
     icon: mdi:calendar-month
@@ -636,86 +744,47 @@ views:
       style:
         .: |
           background: #050508 !important;
-
     cards:
 
       - type: markdown
         content: |
           ## ◈ CALENDAR
-          *Google, iCal, or local HA calendars*
-        <<: *markdown_header_style
+          *Home, work, and Mealie meal plan*
+        <<: *header
 
       - type: calendar
         title: Schedule
         initial_view: dayGridMonth
         entities:
-          - calendar.personal                            # ← CUSTOMIZE
-          - calendar.work                                # ← CUSTOMIZE
-          - calendar.holidays_in_united_states           # ← CUSTOMIZE
+          - calendar.our_home
+          - calendar.work
+          - calendar.ha
         card_mod:
           style: |
-            ha-card {
-              background:    #0a0d12;
-              border:        1px solid #0e2a35;
-              border-radius: 2px;
-              box-shadow:    0 0 12px rgba(0,200,232,0.06);
-            }
-            .card-header {
-              color:          #00c8e8 !important;
-              font-family:    'Rajdhani', sans-serif !important;
-              font-weight:    700 !important;
-              letter-spacing: 0.18em !important;
-              text-transform: uppercase !important;
-              border-bottom:  1px solid #0e2a35 !important;
-            }
-            /* Calendar grid */
-            .fc-col-header-cell-cushion {
-              color:          #3a7a8a !important;
-              font-family:    'Rajdhani', sans-serif !important;
-              letter-spacing: 0.1em !important;
-              text-transform: uppercase !important;
-              font-size:      11px !important;
-            }
-            .fc-daygrid-day-number {
-              color:      #c8f0f8 !important;
-              font-family: 'JetBrains Mono', monospace !important;
-              font-size:  11px !important;
-            }
-            .fc-daygrid-day.fc-day-today {
-              background: #0e2a35 !important;
-            }
-            .fc-event {
-              background:    #00c8e8 !important;
-              border:        none !important;
-              border-radius: 1px !important;
-              color:         #050508 !important;
-              font-family:   'Rajdhani', sans-serif !important;
-              font-size:     10px !important;
-              font-weight:   700 !important;
-              letter-spacing: 0.05em !important;
-            }
-            .fc-toolbar-title {
-              color:          #00c8e8 !important;
-              font-family:    'Rajdhani', sans-serif !important;
-              font-weight:    700 !important;
-              letter-spacing: 0.15em !important;
-              text-transform: uppercase !important;
-            }
-            .fc-button {
-              background:    #0e2a35 !important;
-              border:        1px solid #006878 !important;
-              border-radius: 1px !important;
-              color:         #00c8e8 !important;
-              font-family:   'Rajdhani', sans-serif !important;
-              letter-spacing: 0.08em !important;
-              text-transform: uppercase !important;
-            }
-            .fc-button:hover {
-              background: #006878 !important;
-            }
-            .fc-scrollgrid {
-              border-color: #0e2a35 !important;
-            }
-            td, th {
-              border-color: #0e2a35 !important;
-            }
+            ha-card { background: #0a0d12; border: 1px solid #0e2a35; border-radius: 2px; box-shadow: 0 0 12px rgba(0,200,232,0.06); }
+            .card-header { color: #00c8e8 !important; font-family: 'Rajdhani', sans-serif !important; font-weight: 700 !important; letter-spacing: 0.18em !important; text-transform: uppercase !important; border-bottom: 1px solid #0e2a35 !important; }
+            .fc-col-header-cell-cushion { color: #3a7a8a !important; font-family: 'Rajdhani', sans-serif !important; letter-spacing: 0.1em !important; text-transform: uppercase !important; font-size: 11px !important; }
+            .fc-daygrid-day-number { color: #c8f0f8 !important; font-family: 'JetBrains Mono', monospace !important; font-size: 11px !important; }
+            .fc-daygrid-day.fc-day-today { background: #0e2a35 !important; }
+            .fc-event { background: #00c8e8 !important; border: none !important; border-radius: 1px !important; color: #050508 !important; font-family: 'Rajdhani', sans-serif !important; font-size: 10px !important; font-weight: 700 !important; }
+            .fc-toolbar-title { color: #00c8e8 !important; font-family: 'Rajdhani', sans-serif !important; font-weight: 700 !important; letter-spacing: 0.15em !important; text-transform: uppercase !important; }
+            .fc-button { background: #0e2a35 !important; border: 1px solid #006878 !important; border-radius: 1px !important; color: #00c8e8 !important; font-family: 'Rajdhani', sans-serif !important; letter-spacing: 0.08em !important; text-transform: uppercase !important; }
+            .fc-button:hover { background: #006878 !important; }
+            td, th { border-color: #0e2a35 !important; }
+
+      - type: entities
+        title: Mealie — Meal Plan
+        entities:
+          - entity: calendar.mealie_breakfast
+            name: Breakfast
+          - entity: calendar.mealie_lunch
+            name: Lunch
+          - entity: calendar.mealie_dinner
+            name: Dinner
+          - entity: calendar.mealie_snack
+            name: Snack
+          - entity: calendar.mealie_dessert
+            name: Dessert
+          - entity: sensor.mealie_recipes
+            name: Total Recipes
+        <<: *rows
