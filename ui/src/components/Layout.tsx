@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Crosshair, Scan, Printer, Image, Settings } from 'lucide-react'
+import { LayoutDashboard, Crosshair, Scan, Printer, Image, Settings, Home } from 'lucide-react'
 import Console from './Console'
 import StatusPill, { type PillState } from './StatusPill'
 import type { LogEntry } from '../hooks/useWebSocket'
@@ -15,12 +15,13 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { path: '/',            icon: LayoutDashboard, label: 'DASHBOARD',   end: true  },
-  { path: '/calibration', icon: Crosshair,       label: 'CALIBRATION', end: false },
-  { path: '/scanner',     icon: Scan,            label: 'SCANNER',     end: false, phase: '4' },
-  { path: '/print',       icon: Printer,         label: 'PRINT',       end: false, phase: '5' },
-  { path: '/gallery',     icon: Image,           label: 'GALLERY',     end: false, phase: '6' },
-  { path: '/settings',    icon: Settings,        label: 'SETTINGS',    end: false, phase: '9' },
+  { path: '/',                icon: LayoutDashboard, label: 'DASHBOARD',      end: true  },
+  { path: '/calibration',     icon: Crosshair,       label: 'CALIBRATION',    end: false },
+  { path: '/home-assistant',  icon: Home,            label: 'HOME ASSISTANT', end: false },
+  { path: '/scanner',         icon: Scan,            label: 'SCANNER',        end: false, phase: '4' },
+  { path: '/print',           icon: Printer,         label: 'PRINT',          end: false, phase: '5' },
+  { path: '/gallery',         icon: Image,           label: 'GALLERY',        end: false, phase: '6' },
+  { path: '/settings',        icon: Settings,        label: 'SETTINGS',       end: false, phase: '9' },
 ]
 
 interface Props {
@@ -100,7 +101,7 @@ export default function Layout({ children, logs, health, healthError }: Props) {
       {/* Bottom bar */}
       <footer className="flex items-center gap-4 px-6 py-2 border-t border-j-border bg-j-surf flex-shrink-0
                          font-mono text-[10px] text-j-muted tracking-[0.1em]">
-        <span className="text-j-cdim">HOLOMAT v0.2.0 // PHASE 2 — UI SHELL</span>
+        <span className="text-j-cdim">HOLOMAT v0.3.0 // PHASE 3 — HA EMBEDDING</span>
         <div className="flex-1" />
         <span className="text-j-cdim">{`http://${window.location.host}`}</span>
       </footer>

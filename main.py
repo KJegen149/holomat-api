@@ -1,5 +1,5 @@
 """
-Holomat API  v0.2.0
+Holomat API  v0.3.0
 JARVIS Holomat — smart fabrication surface
 Runs on KJLC-AI-01 (10.11.12.129), port 8100
 
@@ -7,7 +7,7 @@ Phase structure:
   Phase 0  — bootstrap (this file)
   Phase 1  — calibration engine
   Phase 2  — UI shell (React/Vite, replaces ui/index.html placeholder)
-  Phase 3  — Home Assistant embedding
+  Phase 3  — Home Assistant embedding (MQTT discovery + HA dashboard iframe)
   Phase 4  — object scanning pipeline
   Phase 5  — full print pipeline
   Phase 6  — gallery / SMB watcher
@@ -32,6 +32,7 @@ from api.routes.scan import router as scan_router
 from api.routes.print import router as print_router
 from api.routes.gallery import router as gallery_router
 from api.routes.generate import router as generate_router
+from api.routes.ha import router as ha_router
 
 setup_logging()
 log = get_logger(__name__)
@@ -45,7 +46,16 @@ UI_PLACEHOLDER = BASE_DIR / "ui" / "index.html"  # Phase 0-1: boot placeholder
 async def lifespan(app: FastAPI):
     # Wire logger → WebSocket so all log lines stream to the Console app
     set_broadcast(ws_manager.broadcast)
-    log.info("━━━ Holomat v0.2.0 starting — Phase 2 ━━━")
+    log.info("━━━ Holomat v0.3.0 starting — Phase 3 ━━━")
+
+    # HA MQTT bridge (Phase 3)
+    try:
+        from core.ha_bridge import ha_bridge
+        ha_bridge.start()
+    except NotImplementedError:
+        log.info("HA bridge pending — set HA_MQTT_HOST to enable")
+    except Exception as e:
+        log.warning("HA bridge failed to start: %s", e)
 
     # SMB watcher (Phase 6)
     try:
@@ -69,6 +79,11 @@ async def lifespan(app: FastAPI):
     yield
 
     log.info("Holomat shutting down")
+    try:
+        from core.ha_bridge import ha_bridge
+        ha_bridge.stop()
+    except Exception:
+        pass
     for name, obj in [("SMB watcher", "watcher"), ("Voice bridge", "voice_bridge")]:
         try:
             mod = __import__(
@@ -83,7 +98,7 @@ async def lifespan(app: FastAPI):
 # ── App ────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Holomat API",
-    version="0.2.0",
+    version="0.3.0",
     description="JARVIS Holomat — smart fabrication surface",
     lifespan=lifespan,
     docs_url="/api/docs",
@@ -106,6 +121,7 @@ app.include_router(scan_router,        prefix="/api/scan")
 app.include_router(print_router,       prefix="/api/print")
 app.include_router(gallery_router,     prefix="/api/gallery")
 app.include_router(generate_router,    prefix="/api/generate")
+app.include_router(ha_router,          prefix="/api/ha")
 
 
 # ── Static UI serving ──────────────────────────────────────────────────────
