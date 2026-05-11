@@ -1,9 +1,19 @@
 # Holomat API — Claude Code Context
 
 ## Project overview
-Holomat is a Raspberry Pi-based smart mat system with a JARVIS-themed React UI.
+Holomat is a smart mat system with a JARVIS-themed React UI.
 The backend is a FastAPI server (`main.py`) with phase-gated feature development.
-Current live phase: **Phase 4 — Object Scanner**.
+Current live phase: **Phase 5 — OpenSCAD → STL Compilation**.
+
+## Hardware topology — IMPORTANT
+**There is no Raspberry Pi running the Holomat application.** Do not assume ARM/Pi hardware.
+
+| Host | Role | OS |
+|---|---|---|
+| `KJLC-AI-01` | Primary host — runs ALL local services: FastAPI backend, camera, projector, OpenSCAD, OrcaSlicer, Bambu print queue, Wyoming voice bridge | Ubuntu 24.04 x86_64 |
+| Raspberry Pi 5 | Home Assistant only — accessed via MQTT over LAN | — |
+
+All performance estimates (compile times, timeout values, memory budgets) should be based on `KJLC-AI-01` (gaming laptop, Ubuntu 24.04), not embedded ARM hardware. OpenSCAD compilation of a simple case `.scad` takes **1–5 seconds** on this host.
 
 ## Phase roadmap (for planning reference)
 - Phase 0: API scaffold + JARVIS UI bootstrap ✅
@@ -12,7 +22,7 @@ Current live phase: **Phase 4 — Object Scanner**.
 - Phase 3: Home Assistant MQTT bridge ✅
 - Phase 4: Object scanner (CV + Gemini Vision + library) ✅
 - Phase 4F: OpenSCAD case generation (Gemini text) ✅
-- Phase 5: OpenSCAD → STL compilation
+- Phase 5: OpenSCAD → STL compilation ✅
 - Phase 6: SMB gallery watcher / HEIC conversion
 - Phase 7: Print queue (Bambu P1S)
 - Phase 8: Wyoming voice bridge
@@ -38,6 +48,13 @@ Current live phase: **Phase 4 — Object Scanner**.
 - Frontend: React 18, TypeScript, Vite, Tailwind CSS (`j-*` color namespace), Lucide icons
 - 3D printer: Bambu P1S via bambulabs-api + MQTT
 - Home Assistant: MQTT discovery bridge (`core/ha_bridge.py`)
+
+## Phase 5 implementation notes
+- `core/slicer.compile_openscad()`: async subprocess, `--backend=manifold --export-format binstl`, 120 s timeout.
+- STL files persist to `scan_data/stls/`, named `{safe_name}_{8-hex}.stl`.
+- `OPENSCAD_DISPLAY` env var overrides `$DISPLAY` if the server runs as a headless systemd service.
+- `slice_model()` stub moved to Phase 7 marker (was incorrectly marked Phase 5).
+- New routes: `POST /api/generate/openscad`, `GET /api/generate/stl/{filename}`, `POST /api/generate/compile-case`.
 
 ## Known open issues (post Phase 4 review)
 - `scan_data/library.json` has no write lock — concurrent requests can race. Add a `threading.Lock` before Phase 5 adds more write paths.

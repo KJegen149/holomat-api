@@ -2,20 +2,27 @@
 3D generation routes — OpenSCAD case generation and Meshy task proxy.
 Phase 4F / Phase 5.
 
-POST /api/generate/case       — AI-generate OpenSCAD case from object dims
-GET  /api/generate/meshy/{id} — poll Meshy task status via CF worker
-POST /api/generate/openscad   — compile OpenSCAD code → STL (Phase 5)
+POST /api/generate/case          — AI-generate OpenSCAD case from object dims
+GET  /api/generate/meshy/{id}    — poll Meshy task status via CF worker
+POST /api/generate/openscad      — compile OpenSCAD code → STL (Phase 5)
+GET  /api/generate/stl/{filename} — download a compiled STL (Phase 5)
+POST /api/generate/compile-case  — generate case SCAD + compile to STL in one shot (Phase 5)
 """
 import os
+import re
+import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from core.logger import get_logger
 
 log = get_logger(__name__)
 router = APIRouter()
+
+STL_DIR = Path("scan_data/stls")
 
 
 # ── Request models ──────────────────────────────────────────────────────────
@@ -199,6 +206,82 @@ async def meshy_status(task_id: str) -> JSONResponse:
         raise HTTPException(status_code=502, detail=f"CF worker unreachable: {e}")
 
 
+class CompileRequest(BaseModel):
+    scad_code: str
+    name: str = "model"
+
+
+def _safe_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9_-]", "_", name.lower())[:30]
+
+
+def _stl_response(filename: str) -> dict:
+    path = STL_DIR / filename
+    return {
+        "filename": filename,
+        "size_bytes": path.stat().st_size,
+        "download_url": f"/api/generate/stl/{filename}",
+    }
+
+
 @router.post("/openscad")
-async def compile_openscad() -> JSONResponse:
-    raise NotImplementedError("Phase 5")
+async def compile_openscad_route(body: CompileRequest) -> JSONResponse:
+    """Compile arbitrary OpenSCAD code to a binary STL. Returns a download URL."""
+    from core.slicer import compile_openscad, openscad_available
+
+    if not openscad_available():
+        raise HTTPException(status_code=503, detail="OpenSCAD is not installed on this server")
+
+    STL_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{_safe_name(body.name)}_{uuid.uuid4().hex[:8]}.stl"
+    stl_path = str(STL_DIR / filename)
+
+    try:
+        await compile_openscad(body.scad_code, stl_path)
+    except RuntimeError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    return JSONResponse({"name": body.name, **_stl_response(filename)})
+
+
+@router.get("/stl/{filename}")
+async def download_stl(filename: str) -> FileResponse:
+    """Download a previously compiled STL file."""
+    if not filename.endswith(".stl") or "/" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    stl_path = STL_DIR / filename
+    if not stl_path.exists():
+        raise HTTPException(status_code=404, detail="STL not found")
+    return FileResponse(str(stl_path), media_type="application/octet-stream", filename=filename)
+
+
+@router.post("/compile-case")
+async def compile_case(body: GenerateCaseRequest) -> JSONResponse:
+    """Generate an OpenSCAD case from object dimensions and compile it to STL in one shot."""
+    from core.slicer import compile_openscad, openscad_available
+
+    if not openscad_available():
+        raise HTTPException(status_code=503, detail="OpenSCAD is not installed on this server")
+
+    try:
+        code = await _generate_case_openscad(
+            name=body.name,
+            width_mm=body.width_mm,
+            depth_mm=body.depth_mm,
+            height_mm=body.height_mm,
+            padding_mm=body.padding_mm,
+            wall_mm=body.wall_mm,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    STL_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{_safe_name(body.name)}_{uuid.uuid4().hex[:8]}.stl"
+    stl_path = str(STL_DIR / filename)
+
+    try:
+        await compile_openscad(code, stl_path)
+    except RuntimeError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    return JSONResponse({"name": body.name, **_stl_response(filename)})
