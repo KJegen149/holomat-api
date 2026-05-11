@@ -46,7 +46,7 @@ UI_PLACEHOLDER = BASE_DIR / "ui" / "index.html"  # Phase 0-1: boot placeholder
 async def lifespan(app: FastAPI):
     # Wire logger → WebSocket so all log lines stream to the Console app
     set_broadcast(ws_manager.broadcast)
-    log.info("━━━ Holomat v0.3.0 starting — Phase 4 ━━━")
+    log.info("━━━ Holomat v0.6.0 starting — Phase 6 ━━━")
 
     # HA MQTT bridge (Phase 3)
     try:

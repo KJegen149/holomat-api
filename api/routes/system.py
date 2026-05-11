@@ -18,8 +18,8 @@ from core.logger import get_logger
 log = get_logger(__name__)
 router = APIRouter()
 
-VERSION = "0.3.0"
-BUILD_PHASE = "Phase 3 — HA Embedding"
+VERSION = "0.6.0"
+BUILD_PHASE = "Phase 6 — SMB Gallery"
 
 
 @router.get("/health")
