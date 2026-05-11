@@ -48,9 +48,76 @@ async def slice_model(
 ) -> str:
     """
     Run OrcaSlicer CLI on input_path, return path to output .3mf.
-    Implemented in Phase 7.
+
+    Looks for Bambu Lab system profiles under ORCA_PROFILES_DIR
+    (default: ~/.config/OrcaSlicer/system/BBL).
+    If profiles are not found the slicer runs with its compiled-in defaults.
+    Timeout: 300 s.
     """
-    raise NotImplementedError("Phase 7")
+    if not orca_available():
+        raise RuntimeError(f"OrcaSlicer binary not found: {ORCA_CLI!r}")
+
+    import os as _os
+    from pathlib import Path as _Path
+
+    profiles_dir = _Path(
+        _os.getenv(
+            "ORCA_PROFILES_DIR",
+            str(_Path.home() / ".config" / "OrcaSlicer" / "system" / "BBL"),
+        )
+    )
+
+    process_name_map = {
+        "draft":    "0.28mm Draft @BBL P1S",
+        "standard": "0.20mm Standard @BBL P1S",
+        "fine":     "0.10mm Fine @BBL P1S",
+    }
+    process_name = process_name_map.get(quality, process_name_map["standard"])
+
+    stem = _Path(input_path).stem
+    output_path = str(_Path(output_dir) / f"{stem}.3mf")
+
+    cmd = [ORCA_CLI, "--slice", "0", "-o", output_path]
+
+    # Load Bambu P1S system profiles when available
+    candidate_profiles = [
+        profiles_dir / "machine"  / "Bambu Lab P1S 0.4 nozzle.json",
+        profiles_dir / "filament" / "Bambu PLA Basic @BBL P1S.json",
+        profiles_dir / "process"  / f"{process_name}.json",
+    ]
+    for cfg in candidate_profiles:
+        if cfg.exists():
+            cmd += ["--load", str(cfg)]
+
+    cmd.append(input_path)
+    log.info("OrcaSlicer slice: %s", " ".join(cmd))
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    try:
+        _stdout, stderr_bytes = await asyncio.wait_for(
+            proc.communicate(), timeout=300.0
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        raise RuntimeError("OrcaSlicer timed out after 300 s")
+
+    stderr_text = stderr_bytes.decode(errors="replace")
+    out = _Path(output_path)
+
+    if proc.returncode != 0 or not out.exists() or out.stat().st_size == 0:
+        log.error("OrcaSlicer failed (rc=%d): %s", proc.returncode, stderr_text)
+        raise RuntimeError(
+            f"OrcaSlicer slicing failed (rc={proc.returncode}): {stderr_text.strip()}"
+        )
+
+    log.info("3MF written: %s (%d bytes)", output_path, out.stat().st_size)
+    return output_path
 
 
 async def compile_openscad(scad_code: str, output_path: str) -> str:

@@ -101,7 +101,7 @@ export default function Layout({ children, logs, health, healthError }: Props) {
       {/* Bottom bar */}
       <footer className="flex items-center gap-4 px-6 py-2 border-t border-j-border bg-j-surf flex-shrink-0
                          font-mono text-[10px] text-j-muted tracking-[0.1em]">
-        <span className="text-j-cdim">HOLOMAT v0.6.0 // PHASE 6 — SMB GALLERY</span>
+        <span className="text-j-cdim">HOLOMAT v0.7.0 // PHASE 7 — PRINT QUEUE</span>
         <div className="flex-1" />
         <span className="text-j-cdim">{`http://${window.location.host}`}</span>
       </footer>
