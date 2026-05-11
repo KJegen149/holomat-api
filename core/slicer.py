@@ -39,6 +39,23 @@ def openscad_available() -> bool:
     return shutil.which(OPENSCAD_BIN) is not None
 
 
+def _openscad_supports_manifold() -> bool:
+    """Return True if the installed OpenSCAD is 2022+ (has --backend=manifold)."""
+    import re, subprocess as _sp
+    try:
+        out = _sp.run(
+            [OPENSCAD_BIN, "--version"],
+            capture_output=True, text=True, timeout=5,
+        ).stderr + _sp.run(
+            [OPENSCAD_BIN, "--version"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout
+        m = re.search(r"(\d{4})\.", out)
+        return bool(m and int(m.group(1)) >= 2022)
+    except Exception:
+        return False
+
+
 async def slice_model(
     input_path: str,
     quality: str = "standard",
@@ -140,13 +157,11 @@ async def compile_openscad(scad_code: str, output_path: str) -> str:
             f.write(scad_code)
             scad_file = f.name
 
-        cmd = [
-            OPENSCAD_BIN,
-            "--backend=manifold",
-            "--export-format", "binstl",
-            "-o", output_path,
-            scad_file,
-        ]
+        cmd = [OPENSCAD_BIN]
+        # --backend=manifold requires OpenSCAD 2022+; skip on older builds
+        if _openscad_supports_manifold():
+            cmd.append("--backend=manifold")
+        cmd += ["--export-format", "binstl", "-o", output_path, scad_file]
         log.info("OpenSCAD compile: %s", " ".join(cmd))
 
         proc = await asyncio.create_subprocess_exec(
