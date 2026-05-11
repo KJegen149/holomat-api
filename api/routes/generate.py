@@ -7,7 +7,6 @@ GET  /api/generate/meshy/{id} — poll Meshy task status via CF worker
 POST /api/generate/openscad   — compile OpenSCAD code → STL (Phase 5)
 """
 import os
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
@@ -41,17 +40,20 @@ async def _generate_case_openscad(
     wall_mm: float = 2.0,
 ) -> str:
     """
-    Call GPT-4o to generate parametric OpenSCAD code for a protective box case.
-    Falls back to a built-in parametric template when OPENAI_API_KEY is unset.
+    Call Gemini to generate parametric OpenSCAD code for a protective box case.
+    Falls back to a built-in parametric template when GEMINI_API_KEY is unset.
     """
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        log.info("OPENAI_API_KEY not set — returning built-in case template")
+        log.info("GEMINI_API_KEY not set — returning built-in case template")
         return _builtin_case_template(name, width_mm, depth_mm, height_mm, padding_mm, wall_mm)
 
     try:
-        import openai
-        client = openai.AsyncOpenAI(api_key=api_key)
+        import google.generativeai as genai
+
+        genai.configure(api_key=api_key)
+        model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+        model = genai.GenerativeModel(model_name)
 
         prompt = f"""Generate parametric OpenSCAD code for a two-part protective box case with friction-fit lid.
 
@@ -75,20 +77,18 @@ Requirements:
 
 Reply ONLY with the OpenSCAD code. No markdown, no explanation."""
 
-        response = await client.chat.completions.create(
-            model="gpt-4o",
-            max_tokens=1500,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        code = response.choices[0].message.content.strip()
-        # Strip markdown fences if present
+        response = await model.generate_content_async(prompt)
+        code = response.text.strip()
+        # Strip markdown fences if the model adds them anyway
         if code.startswith("```"):
-            parts = code.split("```")
-            code = parts[1].lstrip("openscad\nscad\n").strip() if len(parts) > 1 else code
+            lines = code.splitlines()
+            code = "\n".join(
+                lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
+            ).strip()
         return code
 
     except Exception as e:
-        log.error("GPT-4o case generation failed: %s", e)
+        log.error("Gemini case generation failed: %s", e)
         log.info("Falling back to built-in case template")
         return _builtin_case_template(name, width_mm, depth_mm, height_mm, padding_mm, wall_mm)
 
