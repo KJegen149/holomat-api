@@ -253,7 +253,8 @@ def _build_project_3mf(
         '    </object>',
         '  </resources>',
         f'  <build p:UUID="{build_uuid}">',
-        '    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>',
+        '    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"'
+        ' BambuStudio:plate_index="0"/>',
         '  </build>',
         '</model>',
     ]
