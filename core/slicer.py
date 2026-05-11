@@ -407,7 +407,7 @@ async def slice_model(
         )
 
         try:
-            _stdout, stderr_bytes = await asyncio.wait_for(
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 proc.communicate(), timeout=300.0
             )
         except asyncio.TimeoutError:
@@ -415,13 +415,16 @@ async def slice_model(
             await proc.wait()
             raise RuntimeError("OrcaSlicer timed out after 300 s")
 
+        stdout_text = stdout_bytes.decode(errors="replace")
         stderr_text = stderr_bytes.decode(errors="replace")
+        combined = (stdout_text + "\n" + stderr_text).strip()
         out = Path(output_path)
 
         if proc.returncode != 0 or not out.exists() or out.stat().st_size == 0:
-            log.error("OrcaSlicer failed (rc=%d): %s", proc.returncode, stderr_text)
+            log.error("OrcaSlicer failed (rc=%d)\nstdout: %s\nstderr: %s",
+                      proc.returncode, stdout_text, stderr_text)
             raise RuntimeError(
-                f"OrcaSlicer slicing failed (rc={proc.returncode}): {stderr_text.strip()}"
+                f"OrcaSlicer slicing failed (rc={proc.returncode}): {combined}"
             )
 
         log.info("3MF written: %s (%d bytes)", output_path, out.stat().st_size)
