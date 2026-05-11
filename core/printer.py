@@ -53,8 +53,18 @@ async def get_status() -> dict:
         )
         try:
             printer.connect()
+
+            # Wait for MQTT connection
             for _ in range(16):
                 if printer.mqtt_client_ready:
+                    break
+                time.sleep(0.5)
+
+            # Wait for printer to send its first status report (separate from MQTT connect)
+            for _ in range(20):
+                state_raw = str(printer.get_current_state())
+                nozzle = printer.get_nozzle_temperature()
+                if "UNKNOWN" not in state_raw.upper() and nozzle != 0.0:
                     break
                 time.sleep(0.5)
 
