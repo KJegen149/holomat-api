@@ -56,6 +56,37 @@ def _openscad_supports_manifold() -> bool:
         return False
 
 
+def _orca_profiles_dir() -> "Path":
+    """
+    Locate the Bambu Lab profile directory bundled with OrcaSlicer.
+
+    Search order:
+      1. ORCA_PROFILES_DIR env var (explicit override)
+      2. resources/profiles/BBL/ next to the resolved ORCA_CLI binary
+         (covers AppImage-extracted installs like /opt/orcaslicer/bin/orca-slicer)
+      3. ~/.config/OrcaSlicer/system/BBL/ (user data dir, after first GUI run)
+    """
+    import os as _os
+    from pathlib import Path as _Path
+
+    override = _os.getenv("ORCA_PROFILES_DIR")
+    if override:
+        return _Path(override)
+
+    # Walk up from the real binary to find resources/profiles/BBL
+    try:
+        binary = _Path(ORCA_CLI).resolve()
+        for parent in [binary.parent, binary.parent.parent]:
+            candidate = parent / "resources" / "profiles" / "BBL"
+            if candidate.is_dir():
+                return candidate
+    except Exception:
+        pass
+
+    # Fall back to user config dir (populated after first GUI run)
+    return _Path.home() / ".config" / "OrcaSlicer" / "system" / "BBL"
+
+
 async def slice_model(
     input_path: str,
     quality: str = "standard",
@@ -66,23 +97,16 @@ async def slice_model(
     """
     Run OrcaSlicer CLI on input_path, return path to output .3mf.
 
-    Looks for Bambu Lab system profiles under ORCA_PROFILES_DIR
-    (default: ~/.config/OrcaSlicer/system/BBL).
-    If profiles are not found the slicer runs with its compiled-in defaults.
+    Uses bundled Bambu Lab P1S profiles from the OrcaSlicer installation.
+    Override profile root with ORCA_PROFILES_DIR env var.
     Timeout: 300 s.
     """
     if not orca_available():
         raise RuntimeError(f"OrcaSlicer binary not found: {ORCA_CLI!r}")
 
-    import os as _os
     from pathlib import Path as _Path
 
-    profiles_dir = _Path(
-        _os.getenv(
-            "ORCA_PROFILES_DIR",
-            str(_Path.home() / ".config" / "OrcaSlicer" / "system" / "BBL"),
-        )
-    )
+    profiles_dir = _orca_profiles_dir()
 
     process_name_map = {
         "draft":    "0.28mm Draft @BBL P1S",
@@ -91,22 +115,24 @@ async def slice_model(
     }
     process_name = process_name_map.get(quality, process_name_map["standard"])
 
+    machine_json  = profiles_dir / "machine"  / "Bambu Lab P1S 0.4 nozzle.json"
+    filament_json = profiles_dir / "filament" / "Bambu PLA Basic @BBL P1S.json"
+    process_json  = profiles_dir / "process"  / f"{process_name}.json"
+
     stem = _Path(input_path).stem
     output_path = str(_Path(output_dir) / f"{stem}.3mf")
 
-    cmd = [ORCA_CLI, "--slice", "0", "-o", output_path]
+    cmd = [ORCA_CLI, "--slice", "0"]
 
-    # Load Bambu P1S system profiles when available
-    candidate_profiles = [
-        profiles_dir / "machine"  / "Bambu Lab P1S 0.4 nozzle.json",
-        profiles_dir / "filament" / "Bambu PLA Basic @BBL P1S.json",
-        profiles_dir / "process"  / f"{process_name}.json",
-    ]
-    for cfg in candidate_profiles:
-        if cfg.exists():
-            cmd += ["--load", str(cfg)]
+    # OrcaSlicer uses --load-settings for machine+process (semicolon-joined)
+    # and --load-filaments for filament profiles.
+    settings_parts = [p for p in [machine_json, process_json] if p.exists()]
+    if settings_parts:
+        cmd += ["--load-settings", ";".join(str(p) for p in settings_parts)]
+    if filament_json.exists():
+        cmd += ["--load-filaments", str(filament_json)]
 
-    cmd.append(input_path)
+    cmd += ["--export-3mf", output_path, input_path]
     log.info("OrcaSlicer slice: %s", " ".join(cmd))
 
     proc = await asyncio.create_subprocess_exec(
