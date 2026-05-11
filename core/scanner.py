@@ -236,7 +236,7 @@ async def identify_image(image_bytes: bytes, mime: str = "image/jpeg") -> dict:
         import google.generativeai as genai
 
         genai.configure(api_key=api_key)
-        model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+        model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         model = genai.GenerativeModel(model_name)
 
         image = PIL.Image.open(io.BytesIO(image_bytes))

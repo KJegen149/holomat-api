@@ -20,10 +20,10 @@ Current live phase: **Phase 4 — Object Scanner**.
 
 ## AI provider — IMPORTANT
 **All AI inference uses Google Gemini, not OpenAI.**
-- Vision (object identification): `gemini-1.5-flash` via `google-generativeai`
+- Vision (object identification): `gemini-2.5-flash` via `google-generativeai`
 - Text generation (OpenSCAD case gen): same model
 - Env var: `GEMINI_API_KEY`
-- Optional model override: `GEMINI_MODEL` (default: `gemini-1.5-flash`)
+- Optional model override: `GEMINI_MODEL` (default: `gemini-2.5-flash`)
 - Do NOT introduce `openai`, `gpt-*`, or `OPENAI_API_KEY` anywhere in this project.
 
 ## Key architectural decisions

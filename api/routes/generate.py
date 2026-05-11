@@ -52,7 +52,7 @@ async def _generate_case_openscad(
         import google.generativeai as genai
 
         genai.configure(api_key=api_key)
-        model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+        model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         model = genai.GenerativeModel(model_name)
 
         prompt = f"""Generate parametric OpenSCAD code for a two-part protective box case with friction-fit lid.
