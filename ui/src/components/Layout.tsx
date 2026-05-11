@@ -51,7 +51,7 @@ export default function Layout({ children, logs, health, healthError }: Props) {
         <div>
           <div className="text-j-cyan font-bold text-lg tracking-[0.2em] uppercase font-sans">JARVIS</div>
           <div className="text-j-muted text-[10px] tracking-[0.15em] uppercase font-sans">
-            Just A Rather Very Intelligent System
+            Joint Automation, Robotics &amp; Vision Intelligence System
           </div>
         </div>
         <div className="flex-1" />
