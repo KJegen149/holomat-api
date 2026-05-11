@@ -12,6 +12,7 @@ from core.printer import is_configured as printer_configured
 from core.slicer import orca_available, openscad_available
 from core.smb_watcher import watcher as smb_watcher
 from core.ha_bridge import ha_bridge
+from core.scanner import background_captured_at, get_library
 from api.websocket import manager as ws_manager
 from core.logger import get_logger
 
@@ -19,7 +20,7 @@ log = get_logger(__name__)
 router = APIRouter()
 
 VERSION = "0.3.0"
-BUILD_PHASE = "Phase 3 — HA Embedding"
+BUILD_PHASE = "Phase 4 — Object Scanning"
 
 
 @router.get("/health")
@@ -53,6 +54,10 @@ async def health() -> JSONResponse:
             "cf_api_key_set": bool(os.getenv("CF_API_KEY", "")),
             "ha_bridge":      ha_bridge.running,
             "ha_url":         os.getenv("HA_URL", ""),
+        },
+        "scanner": {
+            "background_captured": background_captured_at() is not None,
+            "library_count":       len(get_library()),
         },
     })
 

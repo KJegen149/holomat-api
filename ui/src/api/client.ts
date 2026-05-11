@@ -27,6 +27,10 @@ export interface HealthResponse {
     ha_bridge: boolean
     ha_url: string
   }
+  scanner: {
+    background_captured: boolean
+    library_count: number
+  }
 }
 
 export interface CalibrationStatus {

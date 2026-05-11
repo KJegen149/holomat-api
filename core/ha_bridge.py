@@ -231,7 +231,7 @@ class _HABridge:
                 "camera_online":      "ON" if camera.is_available() else "OFF",
                 "printer_configured": "ON" if printer_is_configured() else "OFF",
                 "ws_clients":         str(ws_manager.connection_count),
-                "phase":              "Phase 3 — HA Embedding",
+                "phase":              "Phase 4 — Object Scanning",
             }
             for entity in _ENTITIES:
                 obj_id = entity["object_id"]

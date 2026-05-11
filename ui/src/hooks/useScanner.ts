@@ -79,11 +79,12 @@ export function useScanner() {
     setError(null)
     try {
       await patchScanObject(id, { pinned })
+      if (lastScan?.id === id) setLastScan(prev => prev ? { ...prev, pinned } : prev)
       await refreshLibrary()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Update failed')
     }
-  }, [refreshLibrary])
+  }, [lastScan, refreshLibrary])
 
   const updateHeight = useCallback(async (id: string, height_mm: number) => {
     setError(null)
