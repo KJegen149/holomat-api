@@ -109,6 +109,19 @@ async def main():
             names = zf.namelist()
         print(f"    ZIP contents: {names}")
 
+        # Save project 3MF to disk for manual debugging
+        proj_disk = "/tmp/orca_debug_proj.3mf"
+        with open(proj_disk, "wb") as f:
+            f.write(proj_bytes)
+        print(f"    Project 3MF saved to: {proj_disk}")
+        print(f"    printable_area: {machine.get('printable_area', 'NOT SET')}")
+        print()
+        print(f"    Debug cmd:")
+        orca_bin = os.environ.get("ORCA_APPIMAGE") or "/usr/bin/orca-slicer"
+        disp = os.environ.get("ORCA_DISPLAY", "")
+        disp_prefix = f"DISPLAY={disp} " if disp else ""
+        print(f"    {disp_prefix}{orca_bin} --debug 3 --slice 0 --export-3mf /tmp/orca_debug_out.3mf {proj_disk} 2>&1 | grep -iE 'plate|preset|printable|volume|object|error|loaded' | head -60")
+
         # 5. Run OrcaSlicer
         print("\n--- Running OrcaSlicer ---")
         out_path = await slice_model(
