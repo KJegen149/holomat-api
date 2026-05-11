@@ -1,5 +1,5 @@
 """
-Holomat API  v0.3.0
+Holomat API  v0.7.0
 JARVIS Holomat — smart fabrication surface
 Runs on KJLC-AI-01 (10.11.12.129), port 8100
 
@@ -9,9 +9,9 @@ Phase structure:
   Phase 2  — UI shell (React/Vite, replaces ui/index.html placeholder)
   Phase 3  — Home Assistant embedding (MQTT discovery + HA dashboard iframe)
   Phase 4  — object scanning pipeline
-  Phase 5  — full print pipeline
+  Phase 5  — OpenSCAD → STL compilation
   Phase 6  — gallery / SMB watcher
-  Phase 7  — SVG app
+  Phase 7  — print queue (Bambu P1S) ← current
   Phase 8  — voice bridge / HA satellite
   Phase 9+ — settings, polish, batch scan
 """
@@ -46,7 +46,7 @@ UI_PLACEHOLDER = BASE_DIR / "ui" / "index.html"  # Phase 0-1: boot placeholder
 async def lifespan(app: FastAPI):
     # Wire logger → WebSocket so all log lines stream to the Console app
     set_broadcast(ws_manager.broadcast)
-    log.info("━━━ Holomat v0.6.0 starting — Phase 6 ━━━")
+    log.info("━━━ Holomat v0.7.0 starting — Phase 7 ━━━")
 
     # HA MQTT bridge (Phase 3)
     try:
@@ -66,6 +66,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.warning("SMB watcher failed to start: %s", e)
 
+    # Print queue worker (Phase 7)
+    try:
+        from core.print_queue import print_queue
+        print_queue.set_broadcast(ws_manager.broadcast)
+        print_queue.start()
+    except Exception as e:
+        log.warning("Print queue failed to start: %s", e)
+
     # Voice bridge (Phase 8)
     try:
         from core.voice_bridge import voice_bridge
@@ -84,6 +92,11 @@ async def lifespan(app: FastAPI):
         ha_bridge.stop()
     except Exception:
         pass
+    try:
+        from core.print_queue import print_queue
+        print_queue.stop()
+    except Exception:
+        pass
     for name, obj in [("SMB watcher", "watcher"), ("Voice bridge", "voice_bridge")]:
         try:
             mod = __import__(
@@ -98,7 +111,7 @@ async def lifespan(app: FastAPI):
 # ── App ────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Holomat API",
-    version="0.3.0",
+    version="0.7.0",
     description="JARVIS Holomat — smart fabrication surface",
     lifespan=lifespan,
     docs_url="/api/docs",

@@ -280,3 +280,106 @@ export async function compileOpenscad(scadCode: string, name: string): Promise<S
     body: JSON.stringify({ scad_code: scadCode, name }),
   }))
 }
+
+// ── Print Queue API (Phase 7) ─────────────────────────────────────────────────
+
+export interface PrinterStatus {
+  state?: string
+  nozzle_temp?: number
+  bed_temp?: number
+  progress?: number
+  current_file?: string | null
+  error?: string
+}
+
+export interface StlFile {
+  filename: string
+  stem: string
+  size_bytes: number
+  modified_at: number
+}
+
+export interface PrintProfile {
+  id: string
+  name: string
+  layer_height: number
+  infill_percent: number
+  supports: 'none' | 'normal' | 'tree'
+  is_builtin: boolean
+}
+
+export interface PrintJob {
+  id: string
+  name: string
+  stl_path: string
+  profile_id: string
+  state: 'queued' | 'slicing' | 'uploading' | 'printing' | 'done' | 'failed' | 'cancelled'
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+  error: string | null
+  three_mf_path: string | null
+  progress: number
+}
+
+export interface PrintQueueResponse {
+  active: PrintJob[]
+  history: PrintJob[]
+}
+
+async function _checkPrint<T>(r: Response): Promise<T> {
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({})) as { detail?: string; error?: string }
+    throw new Error(body.detail ?? body.error ?? `HTTP ${r.status}`)
+  }
+  return r.json()
+}
+
+export async function fetchPrinterStatus(): Promise<PrinterStatus> {
+  return _checkPrint(await fetch('/api/print/status'))
+}
+
+export async function fetchStls(): Promise<{ stls: StlFile[] }> {
+  return _checkPrint(await fetch('/api/print/stls'))
+}
+
+export async function fetchPrintQueue(): Promise<PrintQueueResponse> {
+  return _checkPrint(await fetch('/api/print/queue'))
+}
+
+export async function queuePrintJob(
+  stl_filename: string,
+  profile_id: string,
+  name?: string,
+): Promise<PrintJob> {
+  return _checkPrint(await fetch('/api/print/queue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stl_filename, profile_id, name: name ?? '' }),
+  }))
+}
+
+export async function cancelPrintJob(jobId: string): Promise<{ cancelled: string }> {
+  return _checkPrint(await fetch(`/api/print/queue/${jobId}`, { method: 'DELETE' }))
+}
+
+export async function fetchPrintProfiles(): Promise<{ profiles: PrintProfile[] }> {
+  return _checkPrint(await fetch('/api/print/profiles'))
+}
+
+export async function createPrintProfile(body: {
+  name: string
+  layer_height: number
+  infill_percent: number
+  supports: string
+}): Promise<PrintProfile> {
+  return _checkPrint(await fetch('/api/print/profiles', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }))
+}
+
+export async function deletePrintProfile(profileId: string): Promise<{ deleted: string }> {
+  return _checkPrint(await fetch(`/api/print/profiles/${profileId}`, { method: 'DELETE' }))
+}
