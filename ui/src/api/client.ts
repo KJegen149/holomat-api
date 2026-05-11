@@ -205,6 +205,65 @@ export async function generateCase(objectId: string, paddingMm = 2, wallMm = 2):
   }))
 }
 
+// ── Gallery API (Phase 6) ────────────────────────────────────────────────────
+
+export interface GalleryItem {
+  id: string
+  filename: string
+  r2_key: string
+  content_type: string
+  file_size: number | null
+  source: string
+  created_at: string
+}
+
+export interface GalleryListResponse {
+  items: GalleryItem[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface Generate3dResult {
+  task_id: string
+  mode: string
+  project_id: string
+  gallery_item_id: string
+}
+
+export interface GenerateSvgResult {
+  svg: string
+  gallery_item_id: string
+}
+
+async function _checkGallery<T>(r: Response): Promise<T> {
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({})) as { detail?: string; error?: string }
+    throw new Error(body.detail ?? body.error ?? `HTTP ${r.status}`)
+  }
+  return r.json()
+}
+
+export async function fetchGallery(limit = 50, offset = 0): Promise<GalleryListResponse> {
+  return _checkGallery(await fetch(`/api/gallery?limit=${limit}&offset=${offset}`))
+}
+
+export async function deleteGalleryItem(id: string): Promise<{ deleted: string }> {
+  return _checkGallery(await fetch(`/api/gallery/${id}`, { method: 'DELETE' }))
+}
+
+export function galleryImageUrl(id: string): string {
+  return `/api/gallery/${id}/image`
+}
+
+export async function galleryGenerate3d(id: string): Promise<Generate3dResult> {
+  return _checkGallery(await fetch(`/api/gallery/${id}/generate-3d`, { method: 'POST' }))
+}
+
+export async function galleryGenerateSvg(id: string): Promise<GenerateSvgResult> {
+  return _checkGallery(await fetch(`/api/gallery/${id}/generate-svg`, { method: 'POST' }))
+}
+
 // ── Generate API (Phase 5) ───────────────────────────────────────────────────
 
 export interface StlResult {
