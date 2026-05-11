@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Camera, Scan, RefreshCw, Pin, PinOff, Trash2, Box,
   CheckCircle, AlertTriangle, Package,
@@ -196,6 +196,13 @@ function LibraryCard({
 }) {
   const [deleteConfirm, setDeleteConfirm] = useState(false)
 
+  // Auto-cancel confirm after 3 s so accidental clicks don't leave the card armed
+  useEffect(() => {
+    if (!deleteConfirm) return
+    const id = setTimeout(() => setDeleteConfirm(false), 3000)
+    return () => clearTimeout(id)
+  }, [deleteConfirm])
+
   return (
     <div className="border border-j-border rounded-sm p-2.5 space-y-1.5 relative group">
       {item.pinned && (
@@ -230,11 +237,10 @@ function LibraryCard({
               if (!deleteConfirm) { setDeleteConfirm(true); return }
               onDelete(item.id)
             }}
-            onBlur={() => setDeleteConfirm(false)}
             className={`p-0.5 transition-colors text-[9px] font-mono ${
               deleteConfirm ? 'text-j-red' : 'text-j-muted hover:text-j-red'
             }`}
-            title="Delete"
+            title={deleteConfirm ? 'Click again to confirm delete' : 'Delete'}
           >
             {deleteConfirm ? '!' : <Trash2 size={10} />}
           </button>
@@ -250,7 +256,7 @@ export default function Scanner() {
   const {
     bgStatus, bgCapturing, captureBackgroundFrame,
     scanning, lastScan, scan,
-    library, refreshLibrary,
+    library, libraryLoading, refreshLibrary,
     togglePin, updateHeight, deleteItem,
     error, clearError,
   } = useScanner()
@@ -365,10 +371,11 @@ export default function Scanner() {
               </h3>
               <button
                 onClick={refreshLibrary}
-                className="text-j-muted hover:text-j-text transition-colors"
+                disabled={libraryLoading}
+                className="text-j-muted hover:text-j-text disabled:opacity-40 transition-colors"
                 title="Refresh library"
               >
-                <RefreshCw size={10} />
+                <RefreshCw size={10} className={libraryLoading ? 'animate-spin' : ''} />
               </button>
             </div>
 
