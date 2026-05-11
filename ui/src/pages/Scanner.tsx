@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import {
   Camera, Scan, RefreshCw, Pin, PinOff, Trash2, Box,
-  CheckCircle, AlertTriangle, Package,
+  CheckCircle, AlertTriangle, Package, Download,
 } from 'lucide-react'
 import { useScanner, type ScanObject } from '../hooks/useScanner'
-import { generateCase } from '../api/client'
+import { generateCase, compileOpenscad, type StlResult } from '../api/client'
 
 // ── Confidence badge ────────────────────────────────────────────────────────
 
@@ -40,6 +40,9 @@ function ScanResult({
   const [generating, setGenerating]   = useState(false)
   const [caseCode, setCaseCode]       = useState<string | null>(null)
   const [caseErr, setCaseErr]         = useState<string | null>(null)
+  const [compiling, setCompiling]     = useState(false)
+  const [stlResult, setStlResult]     = useState<StlResult | null>(null)
+  const [stlErr, setStlErr]           = useState<string | null>(null)
 
   function handleHeightBlur() {
     const v = parseFloat(heightInput)
@@ -50,6 +53,8 @@ function ScanResult({
     setGenerating(true)
     setCaseErr(null)
     setCaseCode(null)
+    setStlResult(null)
+    setStlErr(null)
     try {
       const r = await generateCase(result.id)
       setCaseCode(r.code)
@@ -57,6 +62,21 @@ function ScanResult({
       setCaseErr(e instanceof Error ? e.message : 'Generation failed')
     } finally {
       setGenerating(false)
+    }
+  }
+
+  async function handleCompile() {
+    if (!caseCode) return
+    setCompiling(true)
+    setStlErr(null)
+    setStlResult(null)
+    try {
+      const r = await compileOpenscad(caseCode, result.name)
+      setStlResult(r)
+    } catch (e) {
+      setStlErr(e instanceof Error ? e.message : 'Compilation failed')
+    } finally {
+      setCompiling(false)
     }
   }
 
@@ -169,14 +189,60 @@ function ScanResult({
       )}
 
       {caseCode && (
-        <div className="space-y-1">
-          <div className="font-mono text-[9px] text-j-muted uppercase tracking-[0.1em]">
-            OpenSCAD — copy to OrcaSlicer
+        <div className="space-y-2">
+          <div className="space-y-1">
+            <div className="font-mono text-[9px] text-j-muted uppercase tracking-[0.1em]">
+              OpenSCAD Source
+            </div>
+            <pre className="bg-black border border-j-border rounded-sm p-2 font-mono text-[9px]
+                            text-j-text overflow-auto max-h-32 whitespace-pre-wrap">
+              {caseCode}
+            </pre>
           </div>
-          <pre className="bg-black border border-j-border rounded-sm p-2 font-mono text-[9px]
-                          text-j-text overflow-auto max-h-40 whitespace-pre-wrap">
-            {caseCode}
-          </pre>
+
+          <button
+            onClick={handleCompile}
+            disabled={compiling}
+            className="w-full py-2 bg-j-green/10 border border-j-green text-j-green
+                       font-sans font-bold text-[11px] tracking-[0.15em] uppercase
+                       hover:bg-j-green/20 disabled:opacity-40 disabled:cursor-not-allowed
+                       transition-colors duration-150 rounded-sm flex items-center justify-center gap-2"
+          >
+            {compiling
+              ? <><RefreshCw size={11} className="animate-spin" /> Compiling STL...</>
+              : <><Download size={11} /> Compile to STL</>}
+          </button>
+
+          {stlErr && (
+            <div className="border border-j-red bg-j-red/5 rounded-sm p-2.5 font-mono text-[10px] text-j-red break-words">
+              {stlErr}
+            </div>
+          )}
+
+          {stlResult && (
+            <div className="border border-j-green bg-j-green/5 rounded-sm p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <CheckCircle size={11} className="text-j-green flex-shrink-0" />
+                <span className="font-mono text-[9px] text-j-green uppercase tracking-[0.1em] font-semibold">
+                  STL Ready
+                </span>
+                <span className="font-mono text-[9px] text-j-muted ml-auto">
+                  {(stlResult.size_bytes / 1024).toFixed(1)} KB
+                </span>
+              </div>
+              <div className="font-mono text-[9px] text-j-muted truncate">{stlResult.filename}</div>
+              <a
+                href={stlResult.download_url}
+                download={stlResult.filename}
+                className="flex items-center justify-center gap-2 w-full py-1.5
+                           bg-j-green/10 border border-j-green text-j-green
+                           font-sans font-bold text-[11px] tracking-[0.15em] uppercase
+                           hover:bg-j-green/20 transition-colors duration-150 rounded-sm"
+              >
+                <Download size={11} /> Download STL
+              </a>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -307,7 +373,7 @@ export default function Scanner() {
       <div className="w-[320px] flex flex-col bg-j-surf flex-shrink-0 overflow-hidden">
         <div className="px-5 py-3 border-b border-j-border flex-shrink-0">
           <span className="text-[11px] font-bold tracking-[0.2em] text-j-cyan uppercase font-sans">
-            SCANNER // <span className="text-j-muted font-normal">PHASE 4</span>
+            SCANNER // <span className="text-j-muted font-normal">PHASE 5</span>
           </span>
         </div>
 

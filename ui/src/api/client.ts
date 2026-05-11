@@ -200,3 +200,20 @@ export async function generateCase(objectId: string, paddingMm = 2, wallMm = 2):
     body: JSON.stringify({ object_id: objectId, padding_mm: paddingMm, wall_mm: wallMm }),
   }))
 }
+
+// ── Generate API (Phase 5) ───────────────────────────────────────────────────
+
+export interface StlResult {
+  name: string
+  filename: string
+  size_bytes: number
+  download_url: string
+}
+
+export async function compileOpenscad(scadCode: string, name: string): Promise<StlResult> {
+  return _checkScan(await fetch('/api/generate/openscad', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scad_code: scadCode, name }),
+  }))
+}
