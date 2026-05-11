@@ -108,19 +108,17 @@ async def slice_model(
 
     profiles_dir = _orca_profiles_dir()
 
-    # P1S has no dedicated process/filament profiles in OrcaSlicer —
-    # it uses P1P profiles (identical hardware; P1S just adds an enclosure).
-    # No 0.10mm process profile exists for the standard 0.4 nozzle P1P,
-    # so "fine" falls back to the 0.20mm standard profile.
+    # OrcaSlicer 2.3.2 ships no P1S-specific process profiles.
+    # The P1S is listed as compatible in X1C process profiles (same hotend/motion).
     process_file_map = {
-        "draft":    "0.28mm Extra Draft @BBL P1P.json",
-        "standard": "0.20mm Standard @BBL P1P.json",
-        "fine":     "0.20mm Standard @BBL P1P.json",
+        "draft":    "0.28mm Extra Draft @BBL X1C.json",
+        "standard": "0.20mm Standard @BBL X1C.json",
+        "fine":     "0.12mm Fine @BBL X1C.json",
     }
     process_file = process_file_map.get(quality, process_file_map["standard"])
 
     machine_json  = profiles_dir / "machine"  / "Bambu Lab P1S 0.4 nozzle.json"
-    filament_json = profiles_dir / "filament" / "P1P" / "Bambu PLA Basic @BBL P1P.json"
+    filament_json = profiles_dir / "filament" / "Bambu PLA Basic @BBL X1C.json"
     process_json  = profiles_dir / "process"  / process_file
 
     stem = _Path(input_path).stem
