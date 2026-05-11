@@ -108,16 +108,20 @@ async def slice_model(
 
     profiles_dir = _orca_profiles_dir()
 
-    process_name_map = {
-        "draft":    "0.28mm Draft @BBL P1S",
-        "standard": "0.20mm Standard @BBL P1S",
-        "fine":     "0.10mm Fine @BBL P1S",
+    # P1S has no dedicated process/filament profiles in OrcaSlicer —
+    # it uses P1P profiles (identical hardware; P1S just adds an enclosure).
+    # No 0.10mm process profile exists for the standard 0.4 nozzle P1P,
+    # so "fine" falls back to the 0.20mm standard profile.
+    process_file_map = {
+        "draft":    "0.28mm Extra Draft @BBL P1P.json",
+        "standard": "0.20mm Standard @BBL P1P.json",
+        "fine":     "0.20mm Standard @BBL P1P.json",
     }
-    process_name = process_name_map.get(quality, process_name_map["standard"])
+    process_file = process_file_map.get(quality, process_file_map["standard"])
 
     machine_json  = profiles_dir / "machine"  / "Bambu Lab P1S 0.4 nozzle.json"
-    filament_json = profiles_dir / "filament" / "Bambu PLA Basic @BBL P1S.json"
-    process_json  = profiles_dir / "process"  / f"{process_name}.json"
+    filament_json = profiles_dir / "filament" / "P1P" / "Bambu PLA Basic @BBL P1P.json"
+    process_json  = profiles_dir / "process"  / process_file
 
     stem = _Path(input_path).stem
     output_path = str(_Path(output_dir) / f"{stem}.3mf")
