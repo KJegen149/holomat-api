@@ -19,7 +19,7 @@ log = get_logger(__name__)
 router = APIRouter()
 
 VERSION = "0.3.0"
-BUILD_PHASE = "Phase 3 — HA Embedding"
+BUILD_PHASE = "Phase 4 — Object Scanning"
 
 
 @router.get("/health")
