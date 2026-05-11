@@ -2,18 +2,30 @@
 OrcaSlicer CLI wrapper and OpenSCAD compiler.
 
 Slice pipeline:
-  1. Receive STL or GLB file path + print config
-  2. Run: orca-slicer --slice 0 [params] model.stl --export-3mf output.3mf
-  3. Return path to output .3mf
+  1. Receive STL file path + print config
+  2. Resolve full P1S machine/process/filament settings (flattening inheritance)
+  3. Build a BambuStudio-compatible project .3mf with embedded preset JSONs
+  4. Run: orca-slicer --slice 0 project.3mf --export-3mf output.3mf
+  5. Return path to output .3mf
+
+Embedding presets directly in the 3MF avoids the OrcaSlicer 2.3.2 CLI bug
+where --load-settings machine.json;process.json causes a segfault at
+update_values_to_printer_extruders_for_multiple_filaments.
 
 Print profiles stored in D1 (jarvis-projects DB) via jarvis-api.
 Support options: none | normal | tree (tree preferred for organic Meshy models).
 """
 import asyncio
+import contextlib
+import io
+import json
 import os
 import shutil
+import struct
 import tempfile
+import zipfile
 from pathlib import Path
+from typing import Optional
 
 from core.logger import get_logger
 
@@ -32,6 +44,14 @@ QUALITY_PROFILES = {
     "draft":    {"layer_height": "0.28", "speed": "300"},
     "standard": {"layer_height": "0.20", "speed": "200"},
     "fine":     {"layer_height": "0.10", "speed": "100"},
+}
+
+# Critical P1S settings not present anywhere in the BBL profile inheritance chain
+# (come from OrcaSlicer's compiled-in FDM defaults, which default incorrectly for P1S).
+_P1S_MACHINE_OVERRIDES: dict = {
+    "use_relative_e_distances": "0",   # Bambu uses absolute E; default is 1 → error -51
+    "machine_extruder_count": "1",
+    "printer_technology": "FFF",
 }
 
 
@@ -62,7 +82,7 @@ def _openscad_supports_manifold() -> bool:
         return False
 
 
-def _orca_profiles_dir() -> "Path":
+def _orca_profiles_dir() -> Path:
     """
     Locate the Bambu Lab profile directory bundled with OrcaSlicer.
 
@@ -72,22 +92,18 @@ def _orca_profiles_dir() -> "Path":
          (covers AppImage-extracted installs like /opt/orcaslicer/bin/orca-slicer)
       3. ~/.config/OrcaSlicer/system/BBL/ (user data dir, after first GUI run)
     """
-    import os as _os
-    from pathlib import Path as _Path
-
-    override = _os.getenv("ORCA_PROFILES_DIR")
+    override = os.getenv("ORCA_PROFILES_DIR")
     if override:
-        return _Path(override)
+        return Path(override)
 
-    # Walk up from the real binary (or AppImage sibling dir) to find resources/profiles/BBL
-    candidates: list[_Path] = []
+    candidates: list[Path] = []
     try:
-        candidates.append(_Path(ORCA_CLI).resolve())
+        candidates.append(Path(ORCA_CLI).resolve())
     except Exception:
         pass
     if ORCA_APPIMAGE:
         try:
-            candidates.append(_Path(ORCA_APPIMAGE).resolve())
+            candidates.append(Path(ORCA_APPIMAGE).resolve())
         except Exception:
             pass
     for binary in candidates:
@@ -99,9 +115,210 @@ def _orca_profiles_dir() -> "Path":
         except Exception:
             pass
 
-    # Fall back to user config dir (populated after first GUI run)
-    return _Path.home() / ".config" / "OrcaSlicer" / "system" / "BBL"
+    return Path.home() / ".config" / "OrcaSlicer" / "system" / "BBL"
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Profile resolution
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _resolve_profile(json_path: Path, profiles_dir: Path, _depth: int = 0) -> dict:
+    """
+    Load a profile JSON and flatten its full inheritance chain.
+    Child settings override parent settings. Returns a merged dict.
+    """
+    if _depth > 20:
+        return {}
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+
+    parent_name = data.get("inherits", "")
+    if not parent_name:
+        return dict(data)
+
+    # Search for parent: same dir first, then anywhere under profiles_dir.
+    parent_path: Optional[Path] = json_path.parent / f"{parent_name}.json"
+    if not parent_path.exists():
+        parent_path = None
+        for cand in profiles_dir.rglob(f"{parent_name}.json"):
+            parent_path = cand
+            break
+
+    if parent_path is None:
+        return dict(data)
+
+    parent = _resolve_profile(parent_path, profiles_dir, _depth + 1)
+    merged = {**parent, **data}
+    # Remove inherits so OrcaSlicer doesn't try to resolve it against the empty CLI DB.
+    merged.pop("inherits", None)
+    return merged
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STL parser
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _parse_binary_stl(stl_path: str) -> "tuple[list[tuple], list[tuple]]":
+    """
+    Parse a binary STL file.
+    Returns (vertex_list, triangle_list) with deduplicated vertices.
+    """
+    vmap: dict = {}
+    vlist: list = []
+    tlist: list = []
+    with open(stl_path, "rb") as f:
+        f.read(80)  # header
+        (n_tri,) = struct.unpack_from("<I", f.read(4))
+        for _ in range(n_tri):
+            f.read(12)  # normal vector (ignored)
+            indices = []
+            for _ in range(3):
+                xyz = struct.unpack_from("<fff", f.read(12))
+                idx = vmap.setdefault(xyz, len(vlist))
+                if idx == len(vlist):
+                    vlist.append(xyz)
+                indices.append(idx)
+            f.read(2)   # attribute byte count
+            tlist.append(tuple(indices))
+    return vlist, tlist
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Project 3MF builder
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _build_project_3mf(
+    stl_path: str,
+    machine: dict,
+    process: dict,
+    filament: dict,
+) -> bytes:
+    """
+    Build a BambuStudio-compatible project 3MF as a bytes object.
+
+    Embeds the STL geometry and fully-resolved preset JSONs so OrcaSlicer
+    CLI can slice without --load-settings (avoiding the 2.3.2 combined
+    machine+process segfault).
+
+    Structure:
+      [Content_Types].xml
+      _rels/.rels
+      3D/3dmodel.model              ← geometry XML + preset IDs in metadata
+      Metadata/model_settings.config ← plate/object metadata XML
+      Metadata/machine_settings_0.json
+      Metadata/process_settings_0.json
+      Metadata/filament_settings_0.json
+    """
+    import uuid as _uuid
+
+    m_name  = machine.get("name", "Bambu Lab P1S 0.4 nozzle")
+    pr_name = process.get("name", "0.20mm Standard @BBL X1C")
+    fi_name = filament.get("name", "Bambu PLA Basic @BBL X1C")
+
+    vlist, tlist = _parse_binary_stl(stl_path)
+
+    # ── 3D/3dmodel.model ─────────────────────────────────────────────────────
+    obj_uuid   = str(_uuid.uuid4()).upper()
+    build_uuid = str(_uuid.uuid4()).upper()
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<model unit="millimeter" xml:lang="en-US"'
+        ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"'
+        ' xmlns:BambuStudio="http://schemas.bambulab.com/package/2021"'
+        ' xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06"'
+        ' requiredextensions="p">',
+        '  <metadata name="BambuStudio:3mfVersion">1</metadata>',
+        f'  <metadata name="printer_settings_id" value="{m_name}"/>',
+        f'  <metadata name="print_settings_id" value="{pr_name}"/>',
+        f'  <metadata name="filament_settings_id" value="{fi_name}"/>',
+        '  <resources>',
+        f'    <object id="1" type="model" name="model" p:UUID="{obj_uuid}">',
+        '      <mesh>',
+        '        <vertices>',
+    ]
+    for x, y, z in vlist:
+        parts.append(f'          <v x="{x:.6f}" y="{y:.6f}" z="{z:.6f}"/>')
+    parts += [
+        '        </vertices>',
+        '        <triangles>',
+    ]
+    for v1, v2, v3 in tlist:
+        parts.append(f'          <t v1="{v1}" v2="{v2}" v3="{v3}"/>')
+    parts += [
+        '        </triangles>',
+        '      </mesh>',
+        '    </object>',
+        '  </resources>',
+        f'  <build p:UUID="{build_uuid}">',
+        '    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>',
+        '  </build>',
+        '</model>',
+    ]
+    model_xml = "\n".join(parts)
+
+    # ── Metadata/model_settings.config ────────────────────────────────────────
+    model_cfg = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        "<config>\n"
+        "  <plate>\n"
+        '    <metadata key="plater_id" value="1"/>\n'
+        '    <metadata key="plater_name" value=""/>\n'
+        '    <metadata key="locked" value="false"/>\n'
+        f'    <metadata key="printer_settings_id" value="{m_name}"/>\n'
+        f'    <metadata key="print_settings_id" value="{pr_name}"/>\n'
+        f'    <metadata key="filament_settings_id" value="{fi_name}"/>\n'
+        '    <object id="1" instanceid="0">\n'
+        '      <metadata key="name" value="model"/>\n'
+        '      <metadata key="extruder" value="1"/>\n'
+        '    </object>\n'
+        '  </plate>\n'
+        "</config>\n"
+    )
+
+    # ── [Content_Types].xml ───────────────────────────────────────────────────
+    ctypes = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
+        '  <Default Extension="rels"'
+        ' ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n'
+        '  <Default Extension="model"'
+        ' ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n'
+        '  <Default Extension="json" ContentType="application/json"/>\n'
+        '  <Override PartName="/3D/3dmodel.model"'
+        ' ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n'
+        '  <Override PartName="/Metadata/model_settings.config"'
+        ' ContentType="application/xml"/>\n'
+        '</Types>\n'
+    )
+
+    # ── _rels/.rels ───────────────────────────────────────────────────────────
+    rels = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+        '  <Relationship Target="/3D/3dmodel.model" Id="rel-1"'
+        ' Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>\n'
+        '</Relationships>\n'
+    )
+
+    # ── Pack ZIP ──────────────────────────────────────────────────────────────
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", ctypes)
+        zf.writestr("_rels/.rels", rels)
+        zf.writestr("3D/3dmodel.model", model_xml)
+        zf.writestr("Metadata/model_settings.config", model_cfg)
+        zf.writestr("Metadata/machine_settings_0.json",  json.dumps(machine,  indent=2))
+        zf.writestr("Metadata/process_settings_0.json",  json.dumps(process,  indent=2))
+        zf.writestr("Metadata/filament_settings_0.json", json.dumps(filament, indent=2))
+    return buf.getvalue()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Public API
+# ─────────────────────────────────────────────────────────────────────────────
 
 async def slice_model(
     input_path: str,
@@ -111,7 +328,11 @@ async def slice_model(
     output_dir: str = "/tmp",
 ) -> str:
     """
-    Run OrcaSlicer CLI on input_path, return path to output .3mf.
+    Slice input_path (binary STL) with OrcaSlicer, return path to output .3mf.
+
+    Builds a BambuStudio project 3MF with fully-resolved embedded preset JSONs
+    and passes it to OrcaSlicer CLI without --load-settings, avoiding the 2.3.2
+    crash that occurs when machine+process profiles are combined on the CLI.
 
     Set ORCA_APPIMAGE to use the AppImage directly (preferred for headless).
     Set ORCA_DISPLAY to override $DISPLAY (e.g. ":99" for Xvfb).
@@ -122,12 +343,8 @@ async def slice_model(
         bin_hint = ORCA_APPIMAGE or ORCA_CLI
         raise RuntimeError(f"OrcaSlicer binary not found: {bin_hint!r}")
 
-    from pathlib import Path as _Path
-
     profiles_dir = _orca_profiles_dir()
 
-    # OrcaSlicer 2.3.2 ships no P1S-specific process profiles.
-    # The P1S is listed as compatible in X1C process profiles (same hotend/motion).
     process_file_map = {
         "draft":    "0.28mm Extra Draft @BBL X1C.json",
         "standard": "0.20mm Standard @BBL X1C.json",
@@ -135,44 +352,47 @@ async def slice_model(
     }
     process_file = process_file_map.get(quality, process_file_map["standard"])
 
-    machine_src  = profiles_dir / "machine"  / "Bambu Lab P1S 0.4 nozzle.json"
-    filament_src = profiles_dir / "filament" / "Bambu PLA Basic @BBL X1C.json"
-    process_src  = profiles_dir / "process"  / process_file
+    machine_json  = profiles_dir / "machine"  / "Bambu Lab P1S 0.4 nozzle.json"
+    filament_json = profiles_dir / "filament" / "Bambu PLA Basic @BBL X1C.json"
+    process_json  = profiles_dir / "process"  / process_file
 
-    stem = _Path(input_path).stem
-    output_path = str(_Path(output_dir) / f"{stem}.3mf")
+    # Flatten the full inheritance chain for each profile.
+    machine  = _resolve_profile(machine_json,  profiles_dir)
+    process  = _resolve_profile(process_json,  profiles_dir)
+    filament = _resolve_profile(filament_json, profiles_dir)
 
-    # Stage profile subdirectories under a temp path that contains no vendor
-    # prefix (no "BBL" component).  When OrcaSlicer is run as an AppImage it
-    # strips its own internal vendor prefix from absolute --load-settings paths;
-    # staging under /tmp sidesteps that normalisation.
-    staged = tempfile.mkdtemp(prefix="orca_prof_")
+    # Guarantee correct name fields (may be overwritten by a parent profile).
+    machine["name"]  = "Bambu Lab P1S 0.4 nozzle"
+    process["name"]  = process_file.removesuffix(".json")
+    filament["name"] = "Bambu PLA Basic @BBL X1C"
+
+    # Apply P1S-critical settings absent from the file-based inheritance chain.
+    machine.update(_P1S_MACHINE_OVERRIDES)
+
+    # Per-job overrides.
+    process["sparse_infill_density"] = str(infill)
+    if supports == "none":
+        process["enable_support"] = "0"
+    elif supports == "normal":
+        process["enable_support"] = "1"
+        process["support_type"]   = "normal(auto)"
+    elif supports == "tree":
+        process["enable_support"] = "1"
+        process["support_type"]   = "tree(auto)"
+
+    stem        = Path(input_path).stem
+    output_path = str(Path(output_dir) / f"{stem}.3mf")
+
+    project_bytes = _build_project_3mf(input_path, machine, process, filament)
+
+    fd, project_path = tempfile.mkstemp(suffix=".3mf", prefix="orca_proj_")
     try:
-        for subdir, src in [
-            ("machine",  machine_src.parent),
-            ("filament", filament_src.parent),
-            ("process",  process_src.parent),
-        ]:
-            dest = _Path(staged) / subdir
-            if src.is_dir():
-                os.symlink(str(src), str(dest))
-
-        staged_machine  = _Path(staged) / "machine"  / machine_src.name
-        staged_filament = _Path(staged) / "filament" / filament_src.name
-        staged_process  = _Path(staged) / "process"  / process_src.name
+        os.write(fd, project_bytes)
+        os.close(fd)
+        fd = -1
 
         orca_bin = ORCA_APPIMAGE if ORCA_APPIMAGE else ORCA_CLI
-        cmd = [orca_bin, "--slice", "0"]
-
-        # OrcaSlicer uses --load-settings for machine+process (semicolon-joined)
-        # and --load-filaments for filament profiles.
-        settings_parts = [p for p in [staged_machine, staged_process] if p.exists()]
-        if settings_parts:
-            cmd += ["--load-settings", ";".join(str(p) for p in settings_parts)]
-        if staged_filament.exists():
-            cmd += ["--load-filaments", str(staged_filament)]
-
-        cmd += ["--export-3mf", output_path, input_path]
+        cmd = [orca_bin, "--slice", "0", "--export-3mf", output_path, project_path]
         log.info("OrcaSlicer slice: %s", " ".join(cmd))
 
         env = dict(os.environ)
@@ -196,7 +416,7 @@ async def slice_model(
             raise RuntimeError("OrcaSlicer timed out after 300 s")
 
         stderr_text = stderr_bytes.decode(errors="replace")
-        out = _Path(output_path)
+        out = Path(output_path)
 
         if proc.returncode != 0 or not out.exists() or out.stat().st_size == 0:
             log.error("OrcaSlicer failed (rc=%d): %s", proc.returncode, stderr_text)
@@ -208,7 +428,11 @@ async def slice_model(
         return output_path
 
     finally:
-        shutil.rmtree(staged, ignore_errors=True)
+        if fd >= 0:
+            with contextlib.suppress(OSError):
+                os.close(fd)
+        with contextlib.suppress(OSError):
+            os.unlink(project_path)
 
 
 async def compile_openscad(scad_code: str, output_path: str) -> str:
@@ -232,7 +456,6 @@ async def compile_openscad(scad_code: str, output_path: str) -> str:
             scad_file = f.name
 
         cmd = [OPENSCAD_BIN]
-        # --backend=manifold requires OpenSCAD 2022+; skip on older builds
         if _openscad_supports_manifold():
             cmd.append("--backend=manifold")
         cmd += ["--export-format", "binstl", "-o", output_path, scad_file]
@@ -268,7 +491,5 @@ async def compile_openscad(scad_code: str, output_path: str) -> str:
 
     finally:
         if scad_file:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(scad_file)
-            except OSError:
-                pass
