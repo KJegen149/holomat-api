@@ -4,7 +4,7 @@ import PhaseStub from '../components/PhaseStub'
 export default function Print() {
   return (
     <PhaseStub
-      phase="5"
+      phase="7"
       title="Print Pipeline"
       description="Full 3D print queue management with OrcaSlicer integration and direct Bambu Lab P1S printer control via MQTT."
       icon={Printer}
