@@ -6,7 +6,7 @@ Steps:
   2. Background subtraction (absdiff vs saved background) → binary mask
   3. Morphological cleanup → largest contour
   4. Transform contour through homography → mm-space bounding box
-  5. Send undistorted frame to GPT-4o Vision for object identification
+  5. Send undistorted frame to Gemini Vision for object identification
   6. Return: {name, brand, model, category, confidence, width_mm, depth_mm, area_mm2}
 
 Height estimation requires user input (single camera limitation).
@@ -100,7 +100,7 @@ async def capture_background() -> dict:
     cam_matrix = np.array(cal["camera_matrix"], dtype=np.float64)
     dist_coeffs = np.array(cal["dist_coeffs"], dtype=np.float64)
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, camera.open)
     ok, frame = await loop.run_in_executor(None, camera.capture_frame)
     if not ok or frame is None:
@@ -129,7 +129,7 @@ async def scan_object(background_frame: Optional[np.ndarray] = None) -> dict:
     dist_coeffs = np.array(cal["dist_coeffs"], dtype=np.float64)
     homography = np.array(cal["homography"], dtype=np.float64)
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, camera.open)
     ok, frame = await loop.run_in_executor(None, camera.capture_frame)
     if not ok or frame is None:
@@ -204,13 +204,24 @@ async def scan_object(background_frame: Optional[np.ndarray] = None) -> dict:
     return entry
 
 
-# ── GPT-4o Vision ───────────────────────────────────────────────────────────
+# ── Gemini Vision ───────────────────────────────────────────────────────────
+
+_VISION_PROMPT = (
+    "Identify the object on the black mat in this image. "
+    "Reply ONLY with a JSON object (no markdown) with exactly these keys: "
+    "name (common name string), "
+    "brand (brand string or null), "
+    "model (model string or null), "
+    "category (one of: electronics, tool, toy, food, office, other), "
+    "confidence (float 0.0–1.0)."
+)
+
 
 async def identify_image(image_bytes: bytes, mime: str = "image/jpeg") -> dict:
-    """Send image to GPT-4o Vision. Returns {name, brand, model, category, confidence}."""
-    api_key = os.getenv("OPENAI_API_KEY")
+    """Send image to Gemini Vision. Returns {name, brand, model, category, confidence}."""
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        log.warning("OPENAI_API_KEY not set — skipping Vision identification")
+        log.warning("GEMINI_API_KEY not set — skipping Vision identification")
         return {
             "name": "Unknown Object",
             "brand": None,
@@ -220,46 +231,24 @@ async def identify_image(image_bytes: bytes, mime: str = "image/jpeg") -> dict:
         }
 
     try:
-        import openai
-        client = openai.AsyncOpenAI(api_key=api_key)
-        b64 = base64.b64encode(image_bytes).decode()
+        import io
+        import PIL.Image
+        import google.generativeai as genai
 
-        response = await client.chat.completions.create(
-            model="gpt-4o",
-            max_tokens=256,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{mime};base64,{b64}",
-                                "detail": "low",
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": (
-                                "Identify the object on the black mat in this image. "
-                                "Reply ONLY with a JSON object (no markdown) with exactly these keys: "
-                                "name (common name string), "
-                                "brand (brand string or null), "
-                                "model (model string or null), "
-                                "category (one of: electronics, tool, toy, food, office, other), "
-                                "confidence (float 0.0–1.0)."
-                            ),
-                        },
-                    ],
-                }
-            ],
-        )
+        genai.configure(api_key=api_key)
+        model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        model = genai.GenerativeModel(model_name)
 
-        raw = response.choices[0].message.content.strip()
+        image = PIL.Image.open(io.BytesIO(image_bytes))
+        response = await model.generate_content_async([_VISION_PROMPT, image])
+        raw = response.text.strip()
+
         # Strip markdown code fences if the model adds them anyway
         if raw.startswith("```"):
-            parts = raw.split("```")
-            raw = parts[1].lstrip("json").strip() if len(parts) > 1 else raw
+            lines = raw.splitlines()
+            raw = "\n".join(
+                lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
+            ).strip()
 
         result = json.loads(raw)
         return {
@@ -271,7 +260,7 @@ async def identify_image(image_bytes: bytes, mime: str = "image/jpeg") -> dict:
         }
 
     except Exception as e:
-        log.error("GPT-4o Vision identification failed: %s", e)
+        log.error("Gemini Vision identification failed: %s", e)
         return {
             "name": "Unknown Object",
             "brand": None,
