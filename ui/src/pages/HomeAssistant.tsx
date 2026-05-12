@@ -15,7 +15,7 @@ export default function HomeAssistant({ health }: Props) {
 
   // Append kiosk=true so the HA sidebar/header is hidden inside the embed.
   // Requires the kiosk-mode HACS integration (or HA's built-in ?kiosk param).
-  const embedUrl = haUrl ? `${haUrl}?kiosk=true` : ''
+  const embedUrl = haUrl ? `${haUrl}?hide_sidebar&hide_add_to_home_assistant&hide_search&hide_assistant` : ''
 
   useEffect(() => {
     setLoading(true)
