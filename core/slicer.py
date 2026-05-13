@@ -206,11 +206,16 @@ def _build_project_3mf(
     Structure:
       [Content_Types].xml
       _rels/.rels
-      3D/3dmodel.model              ← geometry XML + preset IDs in metadata
+      3D/3dmodel.model              ← build structure + preset IDs (no mesh)
+      3D/Objects/model.model        ← geometry (vertices + triangles)
       Metadata/model_settings.config ← plate/object metadata XML
       Metadata/machine_settings_0.json
       Metadata/process_settings_0.json
       Metadata/filament_settings_0.json
+
+    BambuStudio format requires geometry in 3D/Objects/ referenced via
+    <component p:path="...">, NOT inline in 3D/3dmodel.model.  Placing the
+    mesh inline causes OrcaSlicer to report "0 objects" and an empty bbox.
     """
     import uuid as _uuid
 
@@ -220,10 +225,38 @@ def _build_project_3mf(
 
     vlist, tlist = _parse_binary_stl(stl_path)
 
-    # ── 3D/3dmodel.model ─────────────────────────────────────────────────────
     obj_uuid   = str(_uuid.uuid4()).upper()
     build_uuid = str(_uuid.uuid4()).upper()
-    parts = [
+
+    # ── 3D/Objects/model.model  (geometry only) ──────────────────────────────
+    geo_parts = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<model unit="millimeter" xml:lang="en-US"'
+        ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">',
+        '  <resources>',
+        '    <object id="1" type="model">',
+        '      <mesh>',
+        '        <vertices>',
+    ]
+    for x, y, z in vlist:
+        geo_parts.append(f'          <v x="{x:.6f}" y="{y:.6f}" z="{z:.6f}"/>')
+    geo_parts += [
+        '        </vertices>',
+        '        <triangles>',
+    ]
+    for v1, v2, v3 in tlist:
+        geo_parts.append(f'          <t v1="{v1}" v2="{v2}" v3="{v3}"/>')
+    geo_parts += [
+        '        </triangles>',
+        '      </mesh>',
+        '    </object>',
+        '  </resources>',
+        '</model>',
+    ]
+    geometry_xml = "\n".join(geo_parts)
+
+    # ── 3D/3dmodel.model  (build structure, references geometry via p:path) ──
+    build_parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<model unit="millimeter" xml:lang="en-US"'
         ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"'
@@ -236,20 +269,9 @@ def _build_project_3mf(
         f'  <metadata name="filament_settings_id" value="{fi_name}"/>',
         '  <resources>',
         f'    <object id="1" type="model" name="model" p:UUID="{obj_uuid}">',
-        '      <mesh>',
-        '        <vertices>',
-    ]
-    for x, y, z in vlist:
-        parts.append(f'          <v x="{x:.6f}" y="{y:.6f}" z="{z:.6f}"/>')
-    parts += [
-        '        </vertices>',
-        '        <triangles>',
-    ]
-    for v1, v2, v3 in tlist:
-        parts.append(f'          <t v1="{v1}" v2="{v2}" v3="{v3}"/>')
-    parts += [
-        '        </triangles>',
-        '      </mesh>',
+        '      <components>',
+        '        <component objectid="1" p:path="/3D/Objects/model.model"/>',
+        '      </components>',
         '    </object>',
         '  </resources>',
         f'  <build p:UUID="{build_uuid}">',
@@ -258,7 +280,7 @@ def _build_project_3mf(
         '  </build>',
         '</model>',
     ]
-    model_xml = "\n".join(parts)
+    build_xml = "\n".join(build_parts)
 
     # ── Metadata/model_settings.config ────────────────────────────────────────
     model_cfg = (
@@ -290,6 +312,8 @@ def _build_project_3mf(
         '  <Default Extension="json" ContentType="application/json"/>\n'
         '  <Override PartName="/3D/3dmodel.model"'
         ' ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n'
+        '  <Override PartName="/3D/Objects/model.model"'
+        ' ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n'
         '  <Override PartName="/Metadata/model_settings.config"'
         ' ContentType="application/xml"/>\n'
         '</Types>\n'
@@ -309,7 +333,8 @@ def _build_project_3mf(
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("[Content_Types].xml", ctypes)
         zf.writestr("_rels/.rels", rels)
-        zf.writestr("3D/3dmodel.model", model_xml)
+        zf.writestr("3D/3dmodel.model", build_xml)
+        zf.writestr("3D/Objects/model.model", geometry_xml)
         zf.writestr("Metadata/model_settings.config", model_cfg)
         zf.writestr("Metadata/machine_settings_0.json",  json.dumps(machine,  indent=2))
         zf.writestr("Metadata/process_settings_0.json",  json.dumps(process,  indent=2))
