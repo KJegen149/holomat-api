@@ -203,12 +203,16 @@ def _build_project_3mf(
     CLI can slice without --load-settings (avoiding the 2.3.2 combined
     machine+process segfault).
 
-    Geometry is embedded inline in 3D/3dmodel.model WITHOUT the 3MF
-    production extension (no requiredextensions="p", no p:UUID, no
-    3D/Objects/ sub-files).  When the production extension is declared,
-    OrcaSlicer's archive iterator marks 3D/Objects/*.model as "skipped"
-    before component resolution runs, deadlocking geometry loading and
-    producing an empty bbox / "nothing to slice" error.
+    Structure follows the real BambuStudio export format:
+      3D/3dmodel.model        ← build structure, component reference (no mesh)
+      3D/Objects/model.model  ← actual geometry (vertices + triangles)
+      Metadata/model_settings.config
+      Metadata/{machine,process,filament}_settings_0.json
+
+    The production extension (requiredextensions="p") is required so the
+    component p:path reference resolves.  The path must NOT have a leading
+    slash — ZIP entries are stored without it and OrcaSlicer does an exact
+    match against the archive entry name.
     """
     m_name  = machine.get("name", "Bambu Lab P1S 0.4 nozzle")
     pr_name = process.get("name", "0.20mm Standard @BBL X1C")
@@ -216,41 +220,54 @@ def _build_project_3mf(
 
     vlist, tlist = _parse_binary_stl(stl_path)
 
-    # ── 3D/3dmodel.model  (geometry + build structure, no production ext) ────
-    parts = [
+    # ── 3D/Objects/model.model  (geometry only) ──────────────────────────────
+    geo_parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<model unit="millimeter" xml:lang="en-US"'
-        ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"'
-        ' xmlns:BambuStudio="http://schemas.bambulab.com/package/2021">',
-        '  <metadata name="BambuStudio:3mfVersion">1</metadata>',
-        f'  <metadata name="printer_settings_id" value="{m_name}"/>',
-        f'  <metadata name="print_settings_id" value="{pr_name}"/>',
-        f'  <metadata name="filament_settings_id" value="{fi_name}"/>',
+        ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">',
         '  <resources>',
-        '    <object id="1" type="model" name="model">',
+        '    <object id="1" type="model">',
         '      <mesh>',
         '        <vertices>',
     ]
     for x, y, z in vlist:
-        parts.append(f'          <v x="{x:.6f}" y="{y:.6f}" z="{z:.6f}"/>')
-    parts += [
-        '        </vertices>',
-        '        <triangles>',
-    ]
+        geo_parts.append(f'          <v x="{x:.6f}" y="{y:.6f}" z="{z:.6f}"/>')
+    geo_parts += ['        </vertices>', '        <triangles>']
     for v1, v2, v3 in tlist:
-        parts.append(f'          <t v1="{v1}" v2="{v2}" v3="{v3}"/>')
-    parts += [
+        geo_parts.append(f'          <t v1="{v1}" v2="{v2}" v3="{v3}"/>')
+    geo_parts += [
         '        </triangles>',
         '      </mesh>',
         '    </object>',
         '  </resources>',
-        '  <build>',
-        '    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"'
-        ' BambuStudio:plate_index="0"/>',
-        '  </build>',
         '</model>',
     ]
-    build_xml = "\n".join(parts)
+    geometry_xml = "\n".join(geo_parts)
+
+    # ── 3D/3dmodel.model  (assembly + build, production extension) ───────────
+    # id="2" is the assembly object; it references the geometry object id="1"
+    # from the external file via <component>.  <build> references the assembly.
+    build_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<model unit="millimeter" xml:lang="en-US"'
+        ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"'
+        ' xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06"'
+        ' xmlns:BambuStudio="http://schemas.bambulab.com/package/2021"'
+        ' requiredextensions="p">\n'
+        '  <metadata name="BambuStudio:3mfVersion">1</metadata>\n'
+        '  <resources>\n'
+        '    <object id="2" type="model">\n'
+        '      <components>\n'
+        '        <component p:path="3D/Objects/model.model" objectid="1"/>\n'
+        '      </components>\n'
+        '    </object>\n'
+        '  </resources>\n'
+        '  <build>\n'
+        '    <item objectid="2" transform="1 0 0 0 1 0 0 0 1 0 0 0"'
+        ' BambuStudio:plate_index="0"/>\n'
+        '  </build>\n'
+        '</model>\n'
+    )
 
     # ── Metadata/model_settings.config ────────────────────────────────────────
     model_cfg = (
@@ -263,7 +280,7 @@ def _build_project_3mf(
         f'    <metadata key="printer_settings_id" value="{m_name}"/>\n'
         f'    <metadata key="print_settings_id" value="{pr_name}"/>\n'
         f'    <metadata key="filament_settings_id" value="{fi_name}"/>\n'
-        '    <object id="1" instanceid="0">\n'
+        '    <object id="2" instanceid="0">\n'
         '      <metadata key="name" value="model"/>\n'
         '      <metadata key="extruder" value="1"/>\n'
         '    </object>\n'
@@ -280,8 +297,6 @@ def _build_project_3mf(
         '  <Default Extension="model"'
         ' ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n'
         '  <Default Extension="json" ContentType="application/json"/>\n'
-        '  <Override PartName="/3D/3dmodel.model"'
-        ' ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n'
         '  <Override PartName="/Metadata/model_settings.config"'
         ' ContentType="application/xml"/>\n'
         '</Types>\n'
@@ -302,6 +317,7 @@ def _build_project_3mf(
         zf.writestr("[Content_Types].xml", ctypes)
         zf.writestr("_rels/.rels", rels)
         zf.writestr("3D/3dmodel.model", build_xml)
+        zf.writestr("3D/Objects/model.model", geometry_xml)
         zf.writestr("Metadata/model_settings.config", model_cfg)
         zf.writestr("Metadata/machine_settings_0.json",  json.dumps(machine,  indent=2))
         zf.writestr("Metadata/process_settings_0.json",  json.dumps(process,  indent=2))
