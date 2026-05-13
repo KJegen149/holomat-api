@@ -203,16 +203,17 @@ def _build_project_3mf(
     CLI can slice without --load-settings (avoiding the 2.3.2 combined
     machine+process segfault).
 
-    Structure follows the real BambuStudio export format:
-      3D/3dmodel.model        ← build structure, component reference (no mesh)
-      3D/Objects/model.model  ← actual geometry (vertices + triangles)
-      Metadata/model_settings.config
-      Metadata/{machine,process,filament}_settings_0.json
+    Key insight from debug logs: OrcaSlicer treats 3D/3dmodel.model as a
+    "project index" (no geometry loaded from it) and 3D/Objects/*.model as
+    geometry files.  Component resolution in OrcaSlicer 2.3.2 CLI mode
+    fails silently, so we cannot use the production extension + component
+    reference pattern.
 
-    The production extension (requiredextensions="p") is required so the
-    component p:path reference resolves.  The path must NOT have a leading
-    slash — ZIP entries are stored without it and OrcaSlicer does an exact
-    match against the archive entry name.
+    Fix: make 3D/Objects/model.model the PRIMARY entry point in _rels/.rels.
+    OrcaSlicer's pre-pass processes this file as a geometry file (because it
+    lives under 3D/Objects/) and loads the inline mesh correctly.  No
+    3D/3dmodel.model is needed.  Embedded preset JSONs are still loaded from
+    Metadata/ by the main archive iteration.
     """
     m_name  = machine.get("name", "Bambu Lab P1S 0.4 nozzle")
     pr_name = process.get("name", "0.20mm Standard @BBL X1C")
@@ -220,13 +221,20 @@ def _build_project_3mf(
 
     vlist, tlist = _parse_binary_stl(stl_path)
 
-    # ── 3D/Objects/model.model  (geometry only) ──────────────────────────────
+    # ── 3D/Objects/model.model  (geometry + build — the primary/only model) ──
+    # This is the entry point from _rels/.rels.  It lives under 3D/Objects/ so
+    # OrcaSlicer treats it as a geometry file and loads inline mesh from it.
     geo_parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<model unit="millimeter" xml:lang="en-US"'
-        ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">',
+        ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"'
+        ' xmlns:BambuStudio="http://schemas.bambulab.com/package/2021">',
+        '  <metadata name="BambuStudio:3mfVersion">1</metadata>',
+        f'  <metadata name="printer_settings_id">{m_name}</metadata>',
+        f'  <metadata name="print_settings_id">{pr_name}</metadata>',
+        f'  <metadata name="filament_settings_id">{fi_name}</metadata>',
         '  <resources>',
-        '    <object id="1" type="model">',
+        '    <object id="1" type="model" name="model">',
         '      <mesh>',
         '        <vertices>',
     ]
@@ -240,34 +248,13 @@ def _build_project_3mf(
         '      </mesh>',
         '    </object>',
         '  </resources>',
+        '  <build>',
+        '    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"'
+        ' BambuStudio:plate_index="0"/>',
+        '  </build>',
         '</model>',
     ]
-    geometry_xml = "\n".join(geo_parts)
-
-    # ── 3D/3dmodel.model  (assembly + build, production extension) ───────────
-    # id="2" is the assembly object; it references the geometry object id="1"
-    # from the external file via <component>.  <build> references the assembly.
-    build_xml = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<model unit="millimeter" xml:lang="en-US"'
-        ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"'
-        ' xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06"'
-        ' xmlns:BambuStudio="http://schemas.bambulab.com/package/2021"'
-        ' requiredextensions="p">\n'
-        '  <metadata name="BambuStudio:3mfVersion">1</metadata>\n'
-        '  <resources>\n'
-        '    <object id="2" type="model">\n'
-        '      <components>\n'
-        '        <component p:path="3D/Objects/model.model" objectid="1"/>\n'
-        '      </components>\n'
-        '    </object>\n'
-        '  </resources>\n'
-        '  <build>\n'
-        '    <item objectid="2" transform="1 0 0 0 1 0 0 0 1 0 0 0"'
-        ' BambuStudio:plate_index="0"/>\n'
-        '  </build>\n'
-        '</model>\n'
-    )
+    model_xml = "\n".join(geo_parts)
 
     # ── Metadata/model_settings.config ────────────────────────────────────────
     model_cfg = (
@@ -280,7 +267,7 @@ def _build_project_3mf(
         f'    <metadata key="printer_settings_id" value="{m_name}"/>\n'
         f'    <metadata key="print_settings_id" value="{pr_name}"/>\n'
         f'    <metadata key="filament_settings_id" value="{fi_name}"/>\n'
-        '    <object id="2" instanceid="0">\n'
+        '    <object id="1" instanceid="0">\n'
         '      <metadata key="name" value="model"/>\n'
         '      <metadata key="extruder" value="1"/>\n'
         '    </object>\n'
@@ -302,11 +289,11 @@ def _build_project_3mf(
         '</Types>\n'
     )
 
-    # ── _rels/.rels ───────────────────────────────────────────────────────────
+    # ── _rels/.rels  (entry point = geometry file, not 3dmodel.model) ─────────
     rels = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
-        '  <Relationship Target="/3D/3dmodel.model" Id="rel-1"'
+        '  <Relationship Target="/3D/Objects/model.model" Id="rel-1"'
         ' Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>\n'
         '</Relationships>\n'
     )
@@ -316,8 +303,7 @@ def _build_project_3mf(
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("[Content_Types].xml", ctypes)
         zf.writestr("_rels/.rels", rels)
-        zf.writestr("3D/3dmodel.model", build_xml)
-        zf.writestr("3D/Objects/model.model", geometry_xml)
+        zf.writestr("3D/Objects/model.model", model_xml)
         zf.writestr("Metadata/model_settings.config", model_cfg)
         zf.writestr("Metadata/machine_settings_0.json",  json.dumps(machine,  indent=2))
         zf.writestr("Metadata/process_settings_0.json",  json.dumps(process,  indent=2))
@@ -339,12 +325,13 @@ async def slice_model(
     """
     Slice input_path (binary STL) with OrcaSlicer, return path to output .3mf.
 
-    Slices input_path with fully-resolved flat preset JSONs written to temp
-    files, passed via --load-settings.  Pre-resolving the full inheritance chain
-    ourselves (removing the `inherits` key) means OrcaSlicer reads flat JSON
-    with no internal resolution — avoiding the 2.3.2 segfault in
-    update_values_to_printer_extruders_for_multiple_filaments that occurs when
-    OrcaSlicer resolves the raw BBL inheritance chain.
+    Slice input_path (binary STL) with OrcaSlicer, return path to output .3mf.
+
+    Builds a project 3MF where 3D/Objects/model.model is the primary entry
+    point (referenced from _rels/.rels).  OrcaSlicer treats files under
+    3D/Objects/ as geometry files and loads inline mesh from them; making it
+    the entry point bypasses the CLI-mode component-resolution bug in 2.3.2
+    that prevented geometry loading when 3D/3dmodel.model was the entry point.
 
     Set ORCA_APPIMAGE to use the AppImage directly (preferred for headless).
     Set ORCA_DISPLAY to override $DISPLAY (e.g. ":99" for Xvfb).
@@ -395,28 +382,16 @@ async def slice_model(
     stem        = Path(input_path).stem
     output_path = str(Path(output_dir) / f"{stem}.3mf")
 
-    # Write fully-resolved flat JSON profiles to temp files.  OrcaSlicer will
-    # read them as-is — no `inherits` key means no internal resolution, which
-    # avoids the 2.3.2 CLI segfault in update_values_to_printer_extruders_
-    # for_multiple_filaments that occurs when resolution touches the multi-
-    # extruder code path.
-    m_fd, m_tmp = tempfile.mkstemp(suffix=".json", prefix="orca_machine_")
-    p_fd, p_tmp = tempfile.mkstemp(suffix=".json", prefix="orca_process_")
-    f_fd, f_tmp = tempfile.mkstemp(suffix=".json", prefix="orca_filament_")
+    project_bytes = _build_project_3mf(input_path, machine, process, filament)
+
+    fd, project_path = tempfile.mkstemp(suffix=".3mf", prefix="orca_proj_")
     try:
-        os.write(m_fd, json.dumps(machine).encode()); os.close(m_fd); m_fd = -1
-        os.write(p_fd, json.dumps(process).encode()); os.close(p_fd); p_fd = -1
-        os.write(f_fd, json.dumps(filament).encode()); os.close(f_fd); f_fd = -1
+        os.write(fd, project_bytes)
+        os.close(fd)
+        fd = -1
 
         orca_bin = ORCA_APPIMAGE if ORCA_APPIMAGE else ORCA_CLI
-        settings_arg = f"{m_tmp};{p_tmp};{f_tmp}"
-        cmd = [
-            orca_bin,
-            "--slice", "0",
-            "--load-settings", settings_arg,
-            "--export-3mf", output_path,
-            input_path,
-        ]
+        cmd = [orca_bin, "--slice", "0", "--export-3mf", output_path, project_path]
         log.info("OrcaSlicer slice: %s", " ".join(cmd))
 
         env = dict(os.environ)
@@ -455,12 +430,11 @@ async def slice_model(
         return output_path
 
     finally:
-        for fd, path in [(m_fd, m_tmp), (p_fd, p_tmp), (f_fd, f_tmp)]:
-            if fd >= 0:
-                with contextlib.suppress(OSError):
-                    os.close(fd)
+        if fd >= 0:
             with contextlib.suppress(OSError):
-                os.unlink(path)
+                os.close(fd)
+        with contextlib.suppress(OSError):
+            os.unlink(project_path)
 
 
 async def compile_openscad(scad_code: str, output_path: str) -> str:
