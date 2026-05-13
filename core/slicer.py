@@ -339,9 +339,12 @@ async def slice_model(
     """
     Slice input_path (binary STL) with OrcaSlicer, return path to output .3mf.
 
-    Builds a BambuStudio project 3MF with fully-resolved embedded preset JSONs
-    and passes it to OrcaSlicer CLI without --load-settings, avoiding the 2.3.2
-    crash that occurs when machine+process profiles are combined on the CLI.
+    Slices input_path with fully-resolved flat preset JSONs written to temp
+    files, passed via --load-settings.  Pre-resolving the full inheritance chain
+    ourselves (removing the `inherits` key) means OrcaSlicer reads flat JSON
+    with no internal resolution — avoiding the 2.3.2 segfault in
+    update_values_to_printer_extruders_for_multiple_filaments that occurs when
+    OrcaSlicer resolves the raw BBL inheritance chain.
 
     Set ORCA_APPIMAGE to use the AppImage directly (preferred for headless).
     Set ORCA_DISPLAY to override $DISPLAY (e.g. ":99" for Xvfb).
@@ -392,16 +395,28 @@ async def slice_model(
     stem        = Path(input_path).stem
     output_path = str(Path(output_dir) / f"{stem}.3mf")
 
-    project_bytes = _build_project_3mf(input_path, machine, process, filament)
-
-    fd, project_path = tempfile.mkstemp(suffix=".3mf", prefix="orca_proj_")
+    # Write fully-resolved flat JSON profiles to temp files.  OrcaSlicer will
+    # read them as-is — no `inherits` key means no internal resolution, which
+    # avoids the 2.3.2 CLI segfault in update_values_to_printer_extruders_
+    # for_multiple_filaments that occurs when resolution touches the multi-
+    # extruder code path.
+    m_fd, m_tmp = tempfile.mkstemp(suffix=".json", prefix="orca_machine_")
+    p_fd, p_tmp = tempfile.mkstemp(suffix=".json", prefix="orca_process_")
+    f_fd, f_tmp = tempfile.mkstemp(suffix=".json", prefix="orca_filament_")
     try:
-        os.write(fd, project_bytes)
-        os.close(fd)
-        fd = -1
+        os.write(m_fd, json.dumps(machine).encode()); os.close(m_fd); m_fd = -1
+        os.write(p_fd, json.dumps(process).encode()); os.close(p_fd); p_fd = -1
+        os.write(f_fd, json.dumps(filament).encode()); os.close(f_fd); f_fd = -1
 
         orca_bin = ORCA_APPIMAGE if ORCA_APPIMAGE else ORCA_CLI
-        cmd = [orca_bin, "--slice", "0", "--export-3mf", output_path, project_path]
+        settings_arg = f"{m_tmp};{p_tmp};{f_tmp}"
+        cmd = [
+            orca_bin,
+            "--slice", "0",
+            "--load-settings", settings_arg,
+            "--export-3mf", output_path,
+            input_path,
+        ]
         log.info("OrcaSlicer slice: %s", " ".join(cmd))
 
         env = dict(os.environ)
@@ -440,11 +455,12 @@ async def slice_model(
         return output_path
 
     finally:
-        if fd >= 0:
+        for fd, path in [(m_fd, m_tmp), (p_fd, p_tmp), (f_fd, f_tmp)]:
+            if fd >= 0:
+                with contextlib.suppress(OSError):
+                    os.close(fd)
             with contextlib.suppress(OSError):
-                os.close(fd)
-        with contextlib.suppress(OSError):
-            os.unlink(project_path)
+                os.unlink(path)
 
 
 async def compile_openscad(scad_code: str, output_path: str) -> str:
