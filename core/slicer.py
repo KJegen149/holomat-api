@@ -328,11 +328,14 @@ def _build_project_3mf(
     # ── 3D/_rels/3dmodel.model.rels  (part relationship → geometry submodel) ──
     # This is what populates m_sub_model_paths in the BBS 3MF loader, causing
     # an ObjectImporter to be queued for 3D/Objects/model.model before assembly.
+    # Target MUST match exactly how m_sub_model_paths stores the path (no
+    # leading slash) so the ObjectImporter key {Target, objectid} aligns with
+    # the component p:path key used by _generate_current_object_list.
     model_rels = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<Relationships'
         ' xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
-        '  <Relationship Target="/3D/Objects/model.model" Id="rel-geom"'
+        '  <Relationship Target="3D/Objects/model.model" Id="rel-geom"'
         ' Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>\n'
         '</Relationships>\n'
     )
