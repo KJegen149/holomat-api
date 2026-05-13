@@ -228,10 +228,10 @@ def _build_project_3mf(
         '        <vertices>',
     ]
     for x, y, z in vlist:
-        parts.append(f'          <v x="{x:.6f}" y="{y:.6f}" z="{z:.6f}"/>')
+        parts.append(f'          <vertex x="{x:.6f}" y="{y:.6f}" z="{z:.6f}"/>')
     parts += ['        </vertices>', '        <triangles>']
     for v1, v2, v3 in tlist:
-        parts.append(f'          <t v1="{v1}" v2="{v2}" v3="{v3}"/>')
+        parts.append(f'          <triangle v1="{v1}" v2="{v2}" v3="{v3}"/>')
     parts += [
         '        </triangles>',
         '      </mesh>',
