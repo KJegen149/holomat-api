@@ -221,16 +221,23 @@ def _build_project_3mf(
 
     vlist, tlist = _parse_binary_stl(stl_path)
 
-    # ── 3D/3dmodel.model  (pure 3MF core spec, inline mesh, no extensions) ──
-    # No xmlns:BambuStudio, no requiredextensions, no component references.
-    # BambuStudio namespace was causing OrcaSlicer to activate project-index
-    # mode which ignores inline mesh.
+    # ── 3D/3dmodel.model ─────────────────────────────────────────────────────
+    # OrcaSlicer skips inline mesh for objects that appear in <build> (they are
+    # treated as assembly stubs whose geometry must come from components).
+    # Non-build objects in <resources> ARE parsed for mesh.
+    #
+    # Structure: object id=1 holds the mesh (NOT in build); object id=2 is the
+    # assembly object (IN build) that references id=1 via a LOCAL component
+    # (same file, no p:path, no production extension required).  OrcaSlicer
+    # loads id=1's mesh, resolves the local component, and id=2 inherits it.
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<model unit="millimeter" xml:lang="en-US"'
-        ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">',
+        ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"'
+        ' xmlns:BambuStudio="http://schemas.bambulab.com/package/2021">',
+        '  <metadata name="BambuStudio:3mfVersion">1</metadata>',
         '  <resources>',
-        '    <object id="1" type="model">',
+        '    <object id="1" type="model">',  # geometry object, NOT in build
         '      <mesh>',
         '        <vertices>',
     ]
@@ -243,9 +250,15 @@ def _build_project_3mf(
         '        </triangles>',
         '      </mesh>',
         '    </object>',
+        '    <object id="2" type="model">',   # assembly object, referenced by build
+        '      <components>',
+        '        <component objectid="1"/>',  # local ref — same file, no p:path
+        '      </components>',
+        '    </object>',
         '  </resources>',
         '  <build>',
-        '    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>',
+        '    <item objectid="2" transform="1 0 0 0 1 0 0 0 1 0 0 0"'
+        ' BambuStudio:plate_index="0"/>',
         '  </build>',
         '</model>',
     ]
