@@ -199,21 +199,28 @@ def _build_project_3mf(
     """
     Build a BambuStudio-compatible project 3MF as a bytes object.
 
-    Embeds the STL geometry and fully-resolved preset JSONs so OrcaSlicer
-    CLI can slice without --load-settings (avoiding the 2.3.2 combined
-    machine+process segfault).
+    BBS 3MF loader architecture (from bbs_3mf.cpp source):
+    - m_sub_model_paths is populated from OPC part-relationship files
+      (3D/_rels/3dmodel.model.rels), NOT from ZIP scanning or p:path parsing
+    - ObjectImporters are created for each path in m_sub_model_paths and run
+      in parallel; they store geometry in m_current_objects keyed by
+      Id = pair<"3D/Objects/model.model", object_id>
+    - _handle_start_component parses the p:path attribute (PPATH_ATTR constant
+      exists in source) and sets Component.object_id.first to the submodel path
+    - _generate_current_object_list resolves components by Id lookup in
+      m_current_objects; geometry must be stored by ObjectImporter BEFORE
+      assembly runs, so the geometry file must be available early
 
-    The entry point MUST be 3D/3dmodel.model (from _rels/.rels); OrcaSlicer
-    classifies any other entry-point path as "other vendor" and runs a
-    degraded loading codepath that discards mesh.
-
-    However, OrcaSlicer also treats 3D/3dmodel.model as a "project index"
-    when it contains BambuStudio/production-extension markers, which prevents
-    inline mesh from loading.  The fix: use the pure 3MF core spec in
-    3D/3dmodel.model — no xmlns:BambuStudio, no requiredextensions="p", no
-    component references.  OrcaSlicer then falls through to the standard 3MF
-    geometry loader which DOES load inline mesh.  Embedded preset JSONs are
-    still picked up from Metadata/ by the archive iterator.
+    Structural requirements:
+    1. _rels/.rels  → 3D/3dmodel.model  (triggers BBS project mode)
+    2. 3D/_rels/3dmodel.model.rels  → lists 3D/Objects/model.model
+       (populates m_sub_model_paths → ObjectImporter queued for geometry)
+    3. 3D/Objects/model.model  written BEFORE 3D/3dmodel.model in ZIP so it is
+       extracted first; when 3D/3dmodel.model triggers inline p:path resolution
+       the file is already in the temp dir
+    4. 3D/3dmodel.model  assembly: object id=1 with component
+       p:path="3D/Objects/model.model" objectid=1; build item objectid=1
+    5. Embedded preset JSONs in Metadata/ (loaded by archive iterator)
     """
     m_name  = machine.get("name", "Bambu Lab P1S 0.4 nozzle")
     pr_name = process.get("name", "0.20mm Standard @BBL X1C")
@@ -221,48 +228,59 @@ def _build_project_3mf(
 
     vlist, tlist = _parse_binary_stl(stl_path)
 
-    # ── 3D/3dmodel.model ─────────────────────────────────────────────────────
-    # OrcaSlicer skips inline mesh for objects that appear in <build> (they are
-    # treated as assembly stubs whose geometry must come from components).
-    # Non-build objects in <resources> ARE parsed for mesh.
-    #
-    # Structure: object id=1 holds the mesh (NOT in build); object id=2 is the
-    # assembly object (IN build) that references id=1 via a LOCAL component
-    # (same file, no p:path, no production extension required).  OrcaSlicer
-    # loads id=1's mesh, resolves the local component, and id=2 inherits it.
-    parts = [
+    # ── 3D/Objects/model.model  (geometry — pure 3MF core spec, no extensions) ─
+    geo_parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<model unit="millimeter" xml:lang="en-US"'
-        ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"'
-        ' xmlns:BambuStudio="http://schemas.bambulab.com/package/2021">',
-        '  <metadata name="BambuStudio:3mfVersion">1</metadata>',
+        ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">',
         '  <resources>',
-        '    <object id="1" type="model">',  # geometry object, NOT in build
+        '    <object id="1" type="model">',
         '      <mesh>',
         '        <vertices>',
     ]
     for x, y, z in vlist:
-        parts.append(f'          <v x="{x:.6f}" y="{y:.6f}" z="{z:.6f}"/>')
-    parts += ['        </vertices>', '        <triangles>']
+        geo_parts.append(f'          <v x="{x:.6f}" y="{y:.6f}" z="{z:.6f}"/>')
+    geo_parts += ['        </vertices>', '        <triangles>']
     for v1, v2, v3 in tlist:
-        parts.append(f'          <t v1="{v1}" v2="{v2}" v3="{v3}"/>')
-    parts += [
+        geo_parts.append(f'          <t v1="{v1}" v2="{v2}" v3="{v3}"/>')
+    geo_parts += [
         '        </triangles>',
         '      </mesh>',
         '    </object>',
-        '    <object id="2" type="model">',   # assembly object, referenced by build
-        '      <components>',
-        '        <component objectid="1"/>',  # local ref — same file, no p:path
-        '      </components>',
-        '    </object>',
         '  </resources>',
-        '  <build>',
-        '    <item objectid="2" transform="1 0 0 0 1 0 0 0 1 0 0 0"'
-        ' BambuStudio:plate_index="0"/>',
-        '  </build>',
+        '  <build/>',
         '</model>',
     ]
-    model_xml = "\n".join(parts)
+    geometry_xml = "\n".join(geo_parts)
+
+    # ── 3D/3dmodel.model  (assembly — BambuStudio project mode) ─────────────
+    # Object id=1 is the assembly stub; its geometry comes from the component
+    # reference to 3D/Objects/model.model objectid=1 via production extension.
+    # p:UUID is included on both object and component — some BBS loader paths
+    # require it to confirm the production-extension cross-file reference.
+    model_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<model unit="millimeter" xml:lang="en-US"\n'
+        '  xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"\n'
+        '  xmlns:BambuStudio="http://schemas.bambulab.com/package/2021"\n'
+        '  xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06"\n'
+        '  requiredextensions="p">\n'
+        '  <metadata name="BambuStudio:3mfVersion">1</metadata>\n'
+        '  <resources>\n'
+        '    <object id="1" type="model"'
+        ' p:UUID="00000001-cafe-beef-0001-000000000001">\n'
+        '      <components>\n'
+        '        <component p:path="3D/Objects/model.model" objectid="1"'
+        ' p:UUID="00000001-cafe-beef-0002-000000000001"/>\n'
+        '      </components>\n'
+        '    </object>\n'
+        '  </resources>\n'
+        '  <build>\n'
+        '    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"'
+        ' BambuStudio:plate_index="0"/>\n'
+        '  </build>\n'
+        '</model>\n'
+    )
 
     # ── Metadata/model_settings.config ────────────────────────────────────────
     model_cfg = (
@@ -297,21 +315,39 @@ def _build_project_3mf(
         '</Types>\n'
     )
 
-    # ── _rels/.rels  (entry point = 3D/3dmodel.model, required by OrcaSlicer) ─
-    rels = (
+    # ── _rels/.rels  (package relationship → 3D/3dmodel.model) ───────────────
+    pkg_rels = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+        '<Relationships'
+        ' xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
         '  <Relationship Target="/3D/3dmodel.model" Id="rel-1"'
         ' Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>\n'
         '</Relationships>\n'
     )
 
-    # ── Pack ZIP ──────────────────────────────────────────────────────────────
+    # ── 3D/_rels/3dmodel.model.rels  (part relationship → geometry submodel) ──
+    # This is what populates m_sub_model_paths in the BBS 3MF loader, causing
+    # an ObjectImporter to be queued for 3D/Objects/model.model before assembly.
+    model_rels = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<Relationships'
+        ' xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+        '  <Relationship Target="/3D/Objects/model.model" Id="rel-geom"'
+        ' Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>\n'
+        '</Relationships>\n'
+    )
+
+    # ── Pack ZIP ─────────────────────────────────────────────────────────────
+    # IMPORTANT: 3D/Objects/model.model MUST appear before 3D/3dmodel.model
+    # in the ZIP so the geometry file is extracted to temp dir before the
+    # assembly file's p:path component reference tries to open it inline.
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("[Content_Types].xml", ctypes)
-        zf.writestr("_rels/.rels", rels)
-        zf.writestr("3D/3dmodel.model", model_xml)
+        zf.writestr("_rels/.rels", pkg_rels)
+        zf.writestr("3D/_rels/3dmodel.model.rels", model_rels)
+        zf.writestr("3D/Objects/model.model", geometry_xml)   # geometry FIRST
+        zf.writestr("3D/3dmodel.model", model_xml)            # assembly after
         zf.writestr("Metadata/model_settings.config", model_cfg)
         zf.writestr("Metadata/machine_settings_0.json",  json.dumps(machine,  indent=2))
         zf.writestr("Metadata/process_settings_0.json",  json.dumps(process,  indent=2))
