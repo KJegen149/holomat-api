@@ -203,17 +203,17 @@ def _build_project_3mf(
     CLI can slice without --load-settings (avoiding the 2.3.2 combined
     machine+process segfault).
 
-    Key insight from debug logs: OrcaSlicer treats 3D/3dmodel.model as a
-    "project index" (no geometry loaded from it) and 3D/Objects/*.model as
-    geometry files.  Component resolution in OrcaSlicer 2.3.2 CLI mode
-    fails silently, so we cannot use the production extension + component
-    reference pattern.
+    The entry point MUST be 3D/3dmodel.model (from _rels/.rels); OrcaSlicer
+    classifies any other entry-point path as "other vendor" and runs a
+    degraded loading codepath that discards mesh.
 
-    Fix: make 3D/Objects/model.model the PRIMARY entry point in _rels/.rels.
-    OrcaSlicer's pre-pass processes this file as a geometry file (because it
-    lives under 3D/Objects/) and loads the inline mesh correctly.  No
-    3D/3dmodel.model is needed.  Embedded preset JSONs are still loaded from
-    Metadata/ by the main archive iteration.
+    However, OrcaSlicer also treats 3D/3dmodel.model as a "project index"
+    when it contains BambuStudio/production-extension markers, which prevents
+    inline mesh from loading.  The fix: use the pure 3MF core spec in
+    3D/3dmodel.model — no xmlns:BambuStudio, no requiredextensions="p", no
+    component references.  OrcaSlicer then falls through to the standard 3MF
+    geometry loader which DOES load inline mesh.  Embedded preset JSONs are
+    still picked up from Metadata/ by the archive iterator.
     """
     m_name  = machine.get("name", "Bambu Lab P1S 0.4 nozzle")
     pr_name = process.get("name", "0.20mm Standard @BBL X1C")
@@ -221,40 +221,35 @@ def _build_project_3mf(
 
     vlist, tlist = _parse_binary_stl(stl_path)
 
-    # ── 3D/Objects/model.model  (geometry + build — the primary/only model) ──
-    # This is the entry point from _rels/.rels.  It lives under 3D/Objects/ so
-    # OrcaSlicer treats it as a geometry file and loads inline mesh from it.
-    geo_parts = [
+    # ── 3D/3dmodel.model  (pure 3MF core spec, inline mesh, no extensions) ──
+    # No xmlns:BambuStudio, no requiredextensions, no component references.
+    # BambuStudio namespace was causing OrcaSlicer to activate project-index
+    # mode which ignores inline mesh.
+    parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<model unit="millimeter" xml:lang="en-US"'
-        ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"'
-        ' xmlns:BambuStudio="http://schemas.bambulab.com/package/2021">',
-        '  <metadata name="BambuStudio:3mfVersion">1</metadata>',
-        f'  <metadata name="printer_settings_id">{m_name}</metadata>',
-        f'  <metadata name="print_settings_id">{pr_name}</metadata>',
-        f'  <metadata name="filament_settings_id">{fi_name}</metadata>',
+        ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">',
         '  <resources>',
-        '    <object id="1" type="model" name="model">',
+        '    <object id="1" type="model">',
         '      <mesh>',
         '        <vertices>',
     ]
     for x, y, z in vlist:
-        geo_parts.append(f'          <v x="{x:.6f}" y="{y:.6f}" z="{z:.6f}"/>')
-    geo_parts += ['        </vertices>', '        <triangles>']
+        parts.append(f'          <v x="{x:.6f}" y="{y:.6f}" z="{z:.6f}"/>')
+    parts += ['        </vertices>', '        <triangles>']
     for v1, v2, v3 in tlist:
-        geo_parts.append(f'          <t v1="{v1}" v2="{v2}" v3="{v3}"/>')
-    geo_parts += [
+        parts.append(f'          <t v1="{v1}" v2="{v2}" v3="{v3}"/>')
+    parts += [
         '        </triangles>',
         '      </mesh>',
         '    </object>',
         '  </resources>',
         '  <build>',
-        '    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"'
-        ' BambuStudio:plate_index="0"/>',
+        '    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>',
         '  </build>',
         '</model>',
     ]
-    model_xml = "\n".join(geo_parts)
+    model_xml = "\n".join(parts)
 
     # ── Metadata/model_settings.config ────────────────────────────────────────
     model_cfg = (
@@ -289,11 +284,11 @@ def _build_project_3mf(
         '</Types>\n'
     )
 
-    # ── _rels/.rels  (entry point = geometry file, not 3dmodel.model) ─────────
+    # ── _rels/.rels  (entry point = 3D/3dmodel.model, required by OrcaSlicer) ─
     rels = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
-        '  <Relationship Target="/3D/Objects/model.model" Id="rel-1"'
+        '  <Relationship Target="/3D/3dmodel.model" Id="rel-1"'
         ' Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>\n'
         '</Relationships>\n'
     )
@@ -303,7 +298,7 @@ def _build_project_3mf(
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("[Content_Types].xml", ctypes)
         zf.writestr("_rels/.rels", rels)
-        zf.writestr("3D/Objects/model.model", model_xml)
+        zf.writestr("3D/3dmodel.model", model_xml)
         zf.writestr("Metadata/model_settings.config", model_cfg)
         zf.writestr("Metadata/machine_settings_0.json",  json.dumps(machine,  indent=2))
         zf.writestr("Metadata/process_settings_0.json",  json.dumps(process,  indent=2))
