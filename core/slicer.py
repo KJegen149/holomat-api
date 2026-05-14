@@ -122,6 +122,34 @@ def _orca_profiles_dir() -> Path:
 # Profile resolution
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _patch_bbl_p1s_absolute_e(profiles_dir: Path) -> None:
+    """
+    Ensure use_relative_e_distances=0 in the BBL P1S machine profile on disk.
+
+    OrcaSlicer's BBL profiles never set this key; the compiled-in default is 1,
+    which triggers the validator ("Add G92 E0 to layer_gcode") on every slice.
+    Patching the leaf machine profile file is the only reliable fix because
+    --load-settings process overrides are rejected as "not compatible with
+    printer" unless they carry the full BBL preset compatibility metadata.
+
+    Idempotent — no-op if already patched or if the file is not writable.
+    """
+    profile_path = profiles_dir / "machine" / "Bambu Lab P1S 0.4 nozzle.json"
+    if not profile_path.exists():
+        log.warning("P1S machine profile not found at %s; cannot patch E-mode", profile_path)
+        return
+    try:
+        data = json.loads(profile_path.read_text(encoding="utf-8"))
+        if data.get("use_relative_e_distances") == "0":
+            return  # already patched
+        data["use_relative_e_distances"] = "0"
+        profile_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        log.info("Patched %s: set use_relative_e_distances=0", profile_path)
+    except OSError as e:
+        log.warning("Cannot patch P1S profile (check permissions on %s): %s", profile_path, e)
+    except Exception as e:
+        log.warning("Unexpected error patching P1S profile: %s", e)
+
 def _resolve_profile(json_path: Path, profiles_dir: Path, _depth: int = 0) -> dict:
     """
     Load a profile JSON and flatten its full inheritance chain.
@@ -309,10 +337,9 @@ async def slice_model(
 
     Slice input_path (binary STL) with OrcaSlicer, return path to output .3mf.
 
-    Builds a pure 3MF (canonical <vertex>/<triangle>) for geometry, plus a
-    process-only settings JSON passed via --load-settings to override the
-    compiled-in use_relative_e_distances=1 default that the BBL disk profiles
-    never set.  Process-only avoids the SIGSEGV triggered by machine settings.
+    Patches the BBL P1S machine profile on disk once (idempotent) to set
+    use_relative_e_distances=0, which the compiled-in OrcaSlicer default has
+    wrong and which no BBL profile file overrides.
 
     Set ORCA_APPIMAGE to use the AppImage directly (preferred for headless).
     Set ORCA_DISPLAY to override $DISPLAY (e.g. ":99" for Xvfb).
@@ -362,49 +389,24 @@ async def slice_model(
         process["enable_support"] = "1"
         process["support_type"]   = "tree(auto)"
 
+    # Patch the BBL P1S machine profile on disk so use_relative_e_distances=0.
+    # OrcaSlicer's BBL profiles omit this key; the compiled-in default is 1,
+    # which triggers the validator on every slice.  This is idempotent.
+    _patch_bbl_p1s_absolute_e(profiles_dir)
+
     stem        = Path(input_path).stem
     output_path = str(Path(output_dir) / f"{stem}.3mf")
 
     project_bytes = _build_project_3mf(input_path, machine, process, filament)
 
-    # OrcaSlicer's BBL disk profiles never set use_relative_e_distances, so
-    # the compiled-in default (1) survives preset loading and triggers the
-    # validator.  Pass a process-only settings override via --load-settings;
-    # process-only avoids the SIGSEGV in
-    # update_values_to_printer_extruders_for_multiple_filaments that occurs
-    # when machine settings are loaded the same way.
-    proc_override = {
-        "type": "process",
-        "from": "User",
-        "name": "holomat_override",
-        "compatible_printers_condition": "",
-        "use_relative_e_distances": "0",
-        "layer_gcode": "G92 E0\n",
-        "sparse_infill_density": str(infill),
-        "enable_support": process["enable_support"],
-    }
-    if "support_type" in process:
-        proc_override["support_type"] = process["support_type"]
-
     fd, project_path = tempfile.mkstemp(suffix=".3mf", prefix="orca_proj_")
-    fd_o, override_path = tempfile.mkstemp(suffix=".json", prefix="orca_proc_")
     try:
         os.write(fd, project_bytes)
         os.close(fd)
         fd = -1
 
-        os.write(fd_o, json.dumps(proc_override).encode())
-        os.close(fd_o)
-        fd_o = -1
-
         orca_bin = ORCA_APPIMAGE if ORCA_APPIMAGE else ORCA_CLI
-        cmd = [
-            orca_bin,
-            "--slice", "0",
-            "--load-settings", override_path,
-            "--export-3mf", output_path,
-            project_path,
-        ]
+        cmd = [orca_bin, "--slice", "0", "--export-3mf", output_path, project_path]
         log.info("OrcaSlicer slice: %s", " ".join(cmd))
 
         env = dict(os.environ)
@@ -448,11 +450,6 @@ async def slice_model(
                 os.close(fd)
         with contextlib.suppress(OSError):
             os.unlink(project_path)
-        if fd_o >= 0:
-            with contextlib.suppress(OSError):
-                os.close(fd_o)
-        with contextlib.suppress(OSError):
-            os.unlink(override_path)
 
 
 async def compile_openscad(scad_code: str, output_path: str) -> str:
