@@ -128,6 +128,36 @@ def _orca_profiles_dir() -> Path:
 # Profile resolution
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _ensure_orca_conf_presets(config_dir: Path, machine: str, print_: str, filament: str) -> None:
+    """
+    Ensure OrcaSlicer.conf has a complete "presets" object so CLI mode binds
+    the right active preset under --datadir.  The first-run GUI wizard often
+    saves only "machine" (omitting "print"/"filament"), which leaves CLI mode
+    running on compiled-in defaults. Idempotent.
+    """
+    conf_path = config_dir / "OrcaSlicer.conf"
+    if not conf_path.is_file():
+        return
+    try:
+        data = json.loads(conf_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        log.warning("Cannot parse %s: %s", conf_path, e)
+        return
+
+    presets = data.get("presets") or {}
+    desired = {"machine": machine, "print": print_, "filament": filament}
+    if all(presets.get(k) == v for k, v in desired.items()):
+        return  # already correct
+
+    presets.update(desired)
+    data["presets"] = presets
+    try:
+        conf_path.write_text(json.dumps(data, indent=4, ensure_ascii=False), encoding="utf-8")
+        log.info("Updated OrcaSlicer.conf presets: %s", desired)
+    except OSError as e:
+        log.warning("Cannot write %s: %s", conf_path, e)
+
+
 def _patch_bbl_profiles_for_p1s(profiles_dir: Path, process_file: str) -> None:
     """
     Patch BBL profiles on disk so OrcaSlicer's CLI validator accepts the slice.
@@ -420,6 +450,14 @@ async def slice_model(
     # Patch the BBL P1S profiles on disk so the validator passes.  Idempotent.
     _patch_bbl_profiles_for_p1s(profiles_dir, process_file)
 
+    # Ensure OrcaSlicer.conf fully selects the P1S preset trio. Idempotent.
+    _ensure_orca_conf_presets(
+        config_dir,
+        machine="Bambu Lab P1S 0.4 nozzle",
+        print_=process_file.removesuffix(".json"),
+        filament="Bambu PLA Basic @BBL X1C",
+    )
+
     # Flatten the full inheritance chain for each profile (for embedded JSONs).
     machine  = _resolve_profile(machine_json,  profiles_dir)
     process  = _resolve_profile(process_json,  profiles_dir)
@@ -455,13 +493,12 @@ async def slice_model(
         fd = -1
 
         orca_bin = ORCA_APPIMAGE if ORCA_APPIMAGE else ORCA_CLI
-        # --no-check skips OrcaSlicer's validity checks (notably the
-        # "Add G92 E0 to layer_gcode" check that fires when CLI mode runs on
-        # compiled-in defaults because no preset selection exists at
-        # ~/.config/OrcaSlicer/ and 3MF embedded presets aren't bound).
-        # The disk profile patches still apply if preset binding does work.
+        # --datadir is required for headless CLI to load the active preset
+        # selection from OrcaSlicer.conf. Without it, CLI runs on compiled-in
+        # defaults and the validator fires ("Add G92 E0 to layer_gcode").
         cmd = [
             orca_bin,
+            "--datadir", str(config_dir),
             "--slice", "0",
             "--export-3mf", output_path,
             project_path,
