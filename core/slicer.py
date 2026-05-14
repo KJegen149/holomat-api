@@ -482,11 +482,14 @@ async def slice_model(
     # SIGSEGV was with the fully-flattened 106-key BBL machine; a stripped
     # machine with 1 extruder / 1 filament should not trigger the crash path
     # in update_values_to_printer_extruders_for_multiple_filaments.
+    # Both JSONs use "inherits" pointing at the BBL system preset name.
+    # OrcaSlicer's compat check (debug: "compatible 0") matches the process's
+    # compatible_printers against the printer's INHERITS value, not its name.
     machine_for_cli = {
         "type": "machine",
-        "name": "Bambu Lab P1S 0.4 nozzle",
+        "name": "holomat_p1s_machine",
         "from": "User",
-        "inherits": "",
+        "inherits": "Bambu Lab P1S 0.4 nozzle",
         "instantiation": "true",
         "version": "2.3.2.0",
         "printer_technology": "FFF",
@@ -508,7 +511,7 @@ async def slice_model(
     process_for_cli["type"] = "process"
     process_for_cli["name"] = "holomat_p1s_process"
     process_for_cli["from"] = "User"
-    process_for_cli["inherits"] = ""
+    process_for_cli["inherits"] = "0.20mm Standard @BBL X1C"
     process_for_cli["instantiation"] = "true"
     process_for_cli["compatible_printers"] = ["Bambu Lab P1S 0.4 nozzle"]
     process_for_cli["compatible_printers_condition"] = ""
