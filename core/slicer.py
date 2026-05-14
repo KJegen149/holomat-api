@@ -357,11 +357,16 @@ async def slice_model(
     """
     Slice input_path (binary STL) with OrcaSlicer, return path to output .3mf.
 
-    Slice input_path (binary STL) with OrcaSlicer, return path to output .3mf.
+    Approach: pass the STL directly to OrcaSlicer and load the BBL profiles
+    via --load-settings + --load-filaments (these have higher priority than
+    3MF embedded settings per `orca-slicer --help`).  Per-job overrides
+    (infill, supports) are baked into a temp copy of the process profile so
+    the BBL file isn't permanently mutated.
 
-    Patches the BBL P1S machine profile on disk once (idempotent) to set
-    use_relative_e_distances=0, which the compiled-in OrcaSlicer default has
-    wrong and which no BBL profile file overrides.
+    Patches the BBL P1S machine/process profiles on disk once (idempotent)
+    to set use_relative_e_distances=0 and G92 E0 in layer_gcode — these keys
+    aren't set anywhere in the BBL inheritance chain and the compiled-in
+    OrcaSlicer defaults trigger the validator.
 
     Set ORCA_APPIMAGE to use the AppImage directly (preferred for headless).
     Set ORCA_DISPLAY to override $DISPLAY (e.g. ":99" for Xvfb).
@@ -381,54 +386,47 @@ async def slice_model(
     }
     process_file = process_file_map.get(quality, process_file_map["standard"])
 
-    machine_json  = profiles_dir / "machine"  / "Bambu Lab P1S 0.4 nozzle.json"
-    filament_json = profiles_dir / "filament" / "Bambu PLA Basic @BBL X1C.json"
-    process_json  = profiles_dir / "process"  / process_file
+    machine_path  = profiles_dir / "machine"  / "Bambu Lab P1S 0.4 nozzle.json"
+    filament_path = profiles_dir / "filament" / "Bambu PLA Basic @BBL X1C.json"
+    process_path  = profiles_dir / "process"  / process_file
 
-    # Flatten the full inheritance chain for each profile.
-    machine  = _resolve_profile(machine_json,  profiles_dir)
-    process  = _resolve_profile(process_json,  profiles_dir)
-    filament = _resolve_profile(filament_json, profiles_dir)
-
-    # Guarantee correct name fields (may be overwritten by a parent profile).
-    machine["name"]  = "Bambu Lab P1S 0.4 nozzle"
-    process["name"]  = process_file.removesuffix(".json")
-    filament["name"] = "Bambu PLA Basic @BBL X1C"
-
-    # Apply P1S-critical settings absent from the file-based inheritance chain.
-    machine.update(_P1S_MACHINE_OVERRIDES)
-
-    # Per-job overrides embedded in the project 3MF (for UI display / reference).
-    process["sparse_infill_density"] = str(infill)
-    process["use_relative_e_distances"] = "0"
-    process["layer_gcode"] = "G92 E0\n"
-    if supports == "none":
-        process["enable_support"] = "0"
-    elif supports == "normal":
-        process["enable_support"] = "1"
-        process["support_type"]   = "normal(auto)"
-    elif supports == "tree":
-        process["enable_support"] = "1"
-        process["support_type"]   = "tree(auto)"
-
-    # Patch the BBL P1S profiles on disk to satisfy OrcaSlicer's validator
-    # (use_relative_e_distances=0 on the machine, "G92 E0" prepended to the
-    # process layer_gcode). Both fixes are applied for redundancy. Idempotent.
+    # Patch the BBL P1S profiles on disk so the validator passes.  Idempotent.
     _patch_bbl_profiles_for_p1s(profiles_dir, process_file)
+
+    # Build a temp process profile = BBL process + per-job overrides, so we
+    # don't permanently mutate the BBL file with job-specific values.
+    try:
+        proc_data = json.loads(process_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise RuntimeError(f"Failed to read process profile {process_path}: {e}") from e
+    proc_data["sparse_infill_density"] = str(infill)
+    if supports == "none":
+        proc_data["enable_support"] = "0"
+    elif supports == "normal":
+        proc_data["enable_support"] = "1"
+        proc_data["support_type"]   = "normal(auto)"
+    elif supports == "tree":
+        proc_data["enable_support"] = "1"
+        proc_data["support_type"]   = "tree(auto)"
 
     stem        = Path(input_path).stem
     output_path = str(Path(output_dir) / f"{stem}.3mf")
 
-    project_bytes = _build_project_3mf(input_path, machine, process, filament)
-
-    fd, project_path = tempfile.mkstemp(suffix=".3mf", prefix="orca_proj_")
+    fd_p, custom_process_path = tempfile.mkstemp(suffix=".json", prefix="orca_proc_")
     try:
-        os.write(fd, project_bytes)
-        os.close(fd)
-        fd = -1
+        os.write(fd_p, json.dumps(proc_data).encode())
+        os.close(fd_p)
+        fd_p = -1
 
         orca_bin = ORCA_APPIMAGE if ORCA_APPIMAGE else ORCA_CLI
-        cmd = [orca_bin, "--slice", "0", "--export-3mf", output_path, project_path]
+        cmd = [
+            orca_bin,
+            "--slice", "0",
+            "--load-settings", f"{machine_path};{custom_process_path}",
+            "--load-filaments", str(filament_path),
+            "--export-3mf", output_path,
+            input_path,
+        ]
         log.info("OrcaSlicer slice: %s", " ".join(cmd))
 
         env = dict(os.environ)
@@ -467,11 +465,11 @@ async def slice_model(
         return output_path
 
     finally:
-        if fd >= 0:
+        if fd_p >= 0:
             with contextlib.suppress(OSError):
-                os.close(fd)
+                os.close(fd_p)
         with contextlib.suppress(OSError):
-            os.unlink(project_path)
+            os.unlink(custom_process_path)
 
 
 async def compile_openscad(scad_code: str, output_path: str) -> str:
