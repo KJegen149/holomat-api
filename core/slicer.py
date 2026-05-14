@@ -3,14 +3,20 @@ OrcaSlicer CLI wrapper and OpenSCAD compiler.
 
 Slice pipeline:
   1. Receive STL file path + print config
-  2. Resolve full P1S machine/process/filament settings (flattening inheritance)
-  3. Build a BambuStudio-compatible project .3mf with embedded preset JSONs
-  4. Run: orca-slicer --slice 0 project.3mf --export-3mf output.3mf
+  2. Patch BBL P1S profiles on disk (idempotent): use_relative_e_distances=0,
+     G92 E0 in layer_gcode — satisfies the OrcaSlicer settings validator.
+  3. Build a plain 3MF (inline geometry, canonical <vertex>/<triangle> tags).
+  4. Run: orca-slicer --slice 0 --no-check project.3mf --export-3mf output.3mf
   5. Return path to output .3mf
 
-Embedding presets directly in the 3MF avoids the OrcaSlicer 2.3.2 CLI bug
-where --load-settings machine.json;process.json causes a segfault at
-update_values_to_printer_extruders_for_multiple_filaments.
+Plain 3MF (no BambuStudio:3mfVersion marker) is used because the BBS code
+path in OrcaSlicer 2.3.2 does not load cross-file component geometry in
+headless CLI mode (always shows "0 objects").  --load-settings is NOT used
+because passing machine JSON causes a segfault in 2.3.2
+(update_values_to_printer_extruders_for_multiple_filaments).
+
+Settings come from the active preset selected in ~/.config/OrcaSlicer/ (set
+by running the GUI once and choosing "Bambu Lab P1S 0.4 nozzle").
 
 Print profiles stored in D1 (jarvis-projects DB) via jarvis-api.
 Support options: none | normal | tree (tree preferred for organic Meshy models).
@@ -247,14 +253,16 @@ def _build_project_3mf(
     filament: dict,
 ) -> bytes:
     """
-    Build a BambuStudio project 3MF.
+    Build a plain 3MF with inline geometry.
 
-    Includes the BambuStudio:3mfVersion=1 marker so OrcaSlicer's BBS loader
-    activates and looks up the preset names from model_settings.config
-    (printer_settings_id etc.) in the BBL disk profile directory.  Geometry
-    lives in 3D/Objects/model.model (referenced via a production-extension
-    component from 3D/3dmodel.model) because the BBS loader does not load
-    inline mesh from the assembly file.
+    Deliberately omits the BambuStudio:3mfVersion marker — the BBS code path
+    in OrcaSlicer 2.3.2 uses cross-file component references that don't load
+    in headless CLI mode (shows "0 objects").  Plain 3MF is confirmed to load
+    geometry correctly (rc goes from -50 "nothing to slice" to -51 when settings
+    are wrong).  Settings come from the active preset in ~/.config/OrcaSlicer/
+    (set when the user ran the GUI for first-time setup).  The BBL P1S profiles
+    are patched on disk (use_relative_e_distances=0, G92 E0 in layer_gcode) so
+    the validator passes once the active preset is the P1S profile.
     """
     m_name  = machine.get("name", "Bambu Lab P1S 0.4 nozzle")
     pr_name = process.get("name", "0.20mm Standard @BBL X1C")
@@ -262,64 +270,34 @@ def _build_project_3mf(
 
     vlist, tlist = _parse_binary_stl(stl_path)
 
-    # ── 3D/Objects/model.model  (geometry — pure 3MF, object id=2) ───────────
-    geom_parts = [
+    # ── 3D/3dmodel.model  (inline geometry — plain 3MF) ──────────────────────
+    parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<model unit="millimeter" xml:lang="en-US"'
         ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">',
         '  <resources>',
-        '    <object id="2" type="model">',
+        '    <object id="1" type="model">',
         '      <mesh>',
         '        <vertices>',
     ]
     for x, y, z in vlist:
-        geom_parts.append(f'          <vertex x="{x:.6f}" y="{y:.6f}" z="{z:.6f}"/>')
-    geom_parts += ['        </vertices>', '        <triangles>']
+        parts.append(f'          <vertex x="{x:.6f}" y="{y:.6f}" z="{z:.6f}"/>')
+    parts += ['        </vertices>', '        <triangles>']
     for v1, v2, v3 in tlist:
-        geom_parts.append(f'          <triangle v1="{v1}" v2="{v2}" v3="{v3}"/>')
-    geom_parts += [
+        parts.append(f'          <triangle v1="{v1}" v2="{v2}" v3="{v3}"/>')
+    parts += [
         '        </triangles>',
         '      </mesh>',
         '    </object>',
         '  </resources>',
+        '  <build>',
+        '    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>',
+        '  </build>',
         '</model>',
     ]
-    geom_xml = "\n".join(geom_parts)
+    model_xml = "\n".join(parts)
 
-    # ── 3D/3dmodel.model  (BBS assembly — triggers BBS loader via 3mfVersion) ─
-    asm_xml = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<model unit="millimeter" xml:lang="en-US"\n'
-        ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"\n'
-        ' xmlns:BambuStudio="http://schemas.bambulab.com/package/2021"\n'
-        ' xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06"\n'
-        ' requiredextensions="p">\n'
-        '  <metadata name="BambuStudio:3mfVersion">1</metadata>\n'
-        '  <resources>\n'
-        '    <object id="1" type="model">\n'
-        '      <components>\n'
-        '        <component objectid="2" p:path="/3D/Objects/model.model"'
-        ' transform="1 0 0 0 1 0 0 0 1 0 0 0"/>\n'
-        '      </components>\n'
-        '    </object>\n'
-        '  </resources>\n'
-        '  <build>\n'
-        '    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>\n'
-        '  </build>\n'
-        '</model>\n'
-    )
-
-    # ── 3D/_rels/3dmodel.model.rels  (production-extension cross-file ref) ────
-    geom_rels = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<Relationships'
-        ' xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
-        '  <Relationship Target="/3D/Objects/model.model" Id="rel-geom-1"'
-        ' Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>\n'
-        '</Relationships>\n'
-    )
-
-    # ── Metadata/model_settings.config  (preset name binding for BBS loader) ──
+    # ── Metadata/model_settings.config  (preset hints — read on some code paths) ──
     model_cfg = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         "<config>\n"
@@ -346,7 +324,6 @@ def _build_project_3mf(
         ' ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n'
         '  <Default Extension="model"'
         ' ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n'
-        '  <Default Extension="json" ContentType="application/json"/>\n'
         '  <Override PartName="/Metadata/model_settings.config"'
         ' ContentType="application/xml"/>\n'
         '</Types>\n'
@@ -366,13 +343,8 @@ def _build_project_3mf(
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("[Content_Types].xml", ctypes)
         zf.writestr("_rels/.rels", rels)
-        zf.writestr("3D/3dmodel.model", asm_xml)
-        zf.writestr("3D/_rels/3dmodel.model.rels", geom_rels)
-        zf.writestr("3D/Objects/model.model", geom_xml)
+        zf.writestr("3D/3dmodel.model", model_xml)
         zf.writestr("Metadata/model_settings.config", model_cfg)
-        zf.writestr("Metadata/machine_settings_0.json",  json.dumps(machine,  indent=2))
-        zf.writestr("Metadata/process_settings_0.json",  json.dumps(process,  indent=2))
-        zf.writestr("Metadata/filament_settings_0.json", json.dumps(filament, indent=2))
     return buf.getvalue()
 
 
@@ -390,17 +362,11 @@ async def slice_model(
     """
     Slice input_path (binary STL) with OrcaSlicer, return path to output .3mf.
 
-    Approach: build a BambuStudio project 3MF (BambuStudio:3mfVersion=1) so
-    OrcaSlicer's BBS loader activates and resolves the preset names from
-    model_settings.config (printer_settings_id, etc.) against the BBL disk
-    profiles.  --load-settings is NOT used because passing machine settings
-    that way segfaults in OrcaSlicer 2.3.2
-    (update_values_to_printer_extruders_for_multiple_filaments).
-
-    Patches the BBL P1S machine/process profiles on disk once (idempotent)
-    to set use_relative_e_distances=0 and G92 E0 in layer_gcode — these keys
-    aren't set anywhere in the BBL inheritance chain and the compiled-in
-    OrcaSlicer defaults trigger the validator.
+    Approach: plain 3MF (inline geometry, no BambuStudio:3mfVersion marker).
+    OrcaSlicer uses whatever preset is active in ~/.config/OrcaSlicer/, which
+    must be set up by running the GUI once and selecting "Bambu Lab P1S 0.4
+    nozzle".  BBL P1S profiles are patched on disk (idempotent) to satisfy
+    the settings validator (use_relative_e_distances=0, G92 E0 in layer_gcode).
 
     Set ORCA_APPIMAGE to use the AppImage directly (preferred for headless).
     Set ORCA_DISPLAY to override $DISPLAY (e.g. ":99" for Xvfb).
@@ -413,20 +379,30 @@ async def slice_model(
 
     # OrcaSlicer 2.3.2 CLI requires a pre-selected preset in its config dir;
     # without GUI setup, it runs on compiled-in defaults that fail the
-    # settings validator on every slice ("Add G92 E0 to layer_gcode").
-    config_dir = Path.home() / ".config" / "OrcaSlicer"
-    config_initialized = config_dir.exists() and any(
-        p.is_file() and p.suffix in (".conf", ".json")
-        for p in config_dir.iterdir()
+    # settings validator ("Add G92 E0 to layer_gcode").
+    # Check multiple candidate homes in case service user ≠ GUI user.
+    _config_candidates = [
+        Path.home() / ".config" / "OrcaSlicer",
+        Path("/home/user/.config/OrcaSlicer"),
+        Path("/root/.config/OrcaSlicer"),
+    ]
+    config_dir = next(
+        (d for d in _config_candidates if d.exists() and any(
+            p.is_file() and p.suffix in (".conf", ".json")
+            for p in d.iterdir()
+        )),
+        None,
     )
-    if not config_initialized:
+    if config_dir is None:
         raise RuntimeError(
-            f"OrcaSlicer config dir at {config_dir} has no preset selection — "
+            "OrcaSlicer config dir not found or has no preset selection — "
             "CLI slicing will fail validation. Launch the OrcaSlicer GUI once "
             "(e.g. `DISPLAY=:99 /usr/bin/orca-slicer` over VNC/X-forwarding), "
             "complete the first-run wizard selecting 'Bambu Lab P1S 0.4 nozzle', "
-            "save and quit. Then retry."
+            "save and quit. Then retry. "
+            f"Checked: {[str(d) for d in _config_candidates]}"
         )
+    log.debug("OrcaSlicer config dir: %s", config_dir)
 
     profiles_dir = _orca_profiles_dir()
 
@@ -487,7 +463,6 @@ async def slice_model(
         cmd = [
             orca_bin,
             "--slice", "0",
-            "--no-check",
             "--export-3mf", output_path,
             project_path,
         ]
