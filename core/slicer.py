@@ -375,6 +375,8 @@ async def slice_model(
     # when machine settings are loaded the same way.
     proc_override = {
         "type": "process",
+        "from": "User",
+        "name": "holomat_override",
         "use_relative_e_distances": "0",
         "layer_gcode": "G92 E0\n",
         "sparse_infill_density": str(infill),
