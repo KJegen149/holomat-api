@@ -122,33 +122,55 @@ def _orca_profiles_dir() -> Path:
 # Profile resolution
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _patch_bbl_p1s_absolute_e(profiles_dir: Path) -> None:
+def _patch_bbl_profiles_for_p1s(profiles_dir: Path, process_file: str) -> None:
     """
-    Ensure use_relative_e_distances=0 in the BBL P1S machine profile on disk.
+    Patch BBL profiles on disk so OrcaSlicer's CLI validator accepts the slice.
 
-    OrcaSlicer's BBL profiles never set this key; the compiled-in default is 1,
-    which triggers the validator ("Add G92 E0 to layer_gcode") on every slice.
-    Patching the leaf machine profile file is the only reliable fix because
-    --load-settings process overrides are rejected as "not compatible with
-    printer" unless they carry the full BBL preset compatibility metadata.
+    Two conditions satisfy the validator (either is sufficient):
+      1. machine profile sets use_relative_e_distances=0
+      2. process profile's layer_gcode contains "G92 E0"
 
-    Idempotent — no-op if already patched or if the file is not writable.
+    Patching the leaf machine profile alone has been observed to be ineffective
+    on OrcaSlicer 2.3.2 — the compiled-in default of 1 persists for reasons
+    that aren't visible at debug level 5.  Patching both gives belt-and-suspenders.
+
+    Idempotent — no-op if already patched.
     """
-    profile_path = profiles_dir / "machine" / "Bambu Lab P1S 0.4 nozzle.json"
-    if not profile_path.exists():
-        log.warning("P1S machine profile not found at %s; cannot patch E-mode", profile_path)
-        return
-    try:
-        data = json.loads(profile_path.read_text(encoding="utf-8"))
-        if data.get("use_relative_e_distances") == "0":
-            return  # already patched
-        data["use_relative_e_distances"] = "0"
-        profile_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-        log.info("Patched %s: set use_relative_e_distances=0", profile_path)
-    except OSError as e:
-        log.warning("Cannot patch P1S profile (check permissions on %s): %s", profile_path, e)
-    except Exception as e:
-        log.warning("Unexpected error patching P1S profile: %s", e)
+    machine_path = profiles_dir / "machine" / "Bambu Lab P1S 0.4 nozzle.json"
+    if machine_path.exists():
+        try:
+            data = json.loads(machine_path.read_text(encoding="utf-8"))
+            if data.get("use_relative_e_distances") != "0":
+                data["use_relative_e_distances"] = "0"
+                machine_path.write_text(
+                    json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
+                log.info("Patched %s: set use_relative_e_distances=0", machine_path)
+        except OSError as e:
+            log.warning("Cannot patch machine profile (permissions on %s): %s", machine_path, e)
+        except Exception as e:
+            log.warning("Unexpected error patching machine profile: %s", e)
+    else:
+        log.warning("P1S machine profile not found at %s", machine_path)
+
+    process_path = profiles_dir / "process" / process_file
+    if process_path.exists():
+        try:
+            data = json.loads(process_path.read_text(encoding="utf-8"))
+            current = data.get("layer_gcode") or ""
+            if "G92 E0" not in current:
+                data["layer_gcode"] = "G92 E0\n" + (current if current else "")
+                process_path.write_text(
+                    json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
+                log.info("Patched %s: prepended G92 E0 to layer_gcode", process_path)
+        except OSError as e:
+            log.warning("Cannot patch process profile (permissions on %s): %s", process_path, e)
+        except Exception as e:
+            log.warning("Unexpected error patching process profile: %s", e)
+    else:
+        log.warning("Process profile not found at %s", process_path)
+
 
 def _resolve_profile(json_path: Path, profiles_dir: Path, _depth: int = 0) -> dict:
     """
@@ -389,10 +411,10 @@ async def slice_model(
         process["enable_support"] = "1"
         process["support_type"]   = "tree(auto)"
 
-    # Patch the BBL P1S machine profile on disk so use_relative_e_distances=0.
-    # OrcaSlicer's BBL profiles omit this key; the compiled-in default is 1,
-    # which triggers the validator on every slice.  This is idempotent.
-    _patch_bbl_p1s_absolute_e(profiles_dir)
+    # Patch the BBL P1S profiles on disk to satisfy OrcaSlicer's validator
+    # (use_relative_e_distances=0 on the machine, "G92 E0" prepended to the
+    # process layer_gcode). Both fixes are applied for redundancy. Idempotent.
+    _patch_bbl_profiles_for_p1s(profiles_dir, process_file)
 
     stem        = Path(input_path).stem
     output_path = str(Path(output_dir) / f"{stem}.3mf")
