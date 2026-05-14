@@ -411,6 +411,23 @@ async def slice_model(
         bin_hint = ORCA_APPIMAGE or ORCA_CLI
         raise RuntimeError(f"OrcaSlicer binary not found: {bin_hint!r}")
 
+    # OrcaSlicer 2.3.2 CLI requires a pre-selected preset in its config dir;
+    # without GUI setup, it runs on compiled-in defaults that fail the
+    # settings validator on every slice ("Add G92 E0 to layer_gcode").
+    config_dir = Path.home() / ".config" / "OrcaSlicer"
+    config_initialized = config_dir.exists() and any(
+        p.is_file() and p.suffix in (".conf", ".json")
+        for p in config_dir.iterdir()
+    )
+    if not config_initialized:
+        raise RuntimeError(
+            f"OrcaSlicer config dir at {config_dir} has no preset selection — "
+            "CLI slicing will fail validation. Launch the OrcaSlicer GUI once "
+            "(e.g. `DISPLAY=:99 /usr/bin/orca-slicer` over VNC/X-forwarding), "
+            "complete the first-run wizard selecting 'Bambu Lab P1S 0.4 nozzle', "
+            "save and quit. Then retry."
+        )
+
     profiles_dir = _orca_profiles_dir()
 
     process_file_map = {
