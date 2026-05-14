@@ -197,19 +197,23 @@ def _build_project_3mf(
     filament: dict,
 ) -> bytes:
     """
-    Build a project 3MF that OrcaSlicer CLI can slice.
+    Build a BambuStudio project 3MF that OrcaSlicer CLI can slice.
 
-    All BambuStudio-project-mode and production-extension approaches produced
-    "0 objects" because bbs_3mf.cpp (the BBS loader) ignores inline mesh from
-    3D/3dmodel.model AND the cross-file component resolution fails silently at
-    debug level 5 (no instrumented log path).
+    Structure:
+      3D/3dmodel.model       — BBS assembly: BambuStudio:3mfVersion marker +
+                               component reference to 3D/Objects/model.model.
+                               The BambuStudio:3mfVersion triggers the BBS loader
+                               (m_is_bbl_3mf=true) which DOES apply embedded
+                               Metadata/*.json presets as the active slice config.
+      3D/Objects/model.model — geometry (pure 3MF, canonical <vertex>/<triangle>).
+      3D/_rels/3dmodel.model.rels — production-extension rels so the BBS loader
+                               resolves the cross-file component reference.
+      Metadata/*.json        — machine / process / filament preset JSONs.
 
-    Pure 3MF approach: strip every BambuStudio marker (xmlns:BambuStudio,
-    BambuStudio:3mfVersion, requiredextensions, BambuStudio:plate_index) so
-    OrcaSlicer uses the STANDARD 3mf.cpp loader, which DOES load inline mesh
-    from build objects.  The _extract_project_embedded_presets_from_archive
-    scan runs before loader-mode detection, so Metadata/*.json presets are
-    still extracted and applied in either mode.
+    Previous "other vendor" mode (pure 3MF, no BambuStudio markers) correctly
+    loaded geometry (rc changed from -50 to -51) but ignored the embedded
+    Metadata/*.json presets entirely, leaving use_relative_e_distances at the
+    compiled-in default (1), which triggered the validator error.
     """
     m_name  = machine.get("name", "Bambu Lab P1S 0.4 nozzle")
     pr_name = process.get("name", "0.20mm Standard @BBL X1C")
@@ -217,32 +221,62 @@ def _build_project_3mf(
 
     vlist, tlist = _parse_binary_stl(stl_path)
 
-    # ── 3D/3dmodel.model  (pure 3MF core spec — no BambuStudio markers) ──────
-    parts = [
+    # ── 3D/Objects/model.model  (geometry — pure 3MF, object id=2) ───────────
+    geom_parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<model unit="millimeter" xml:lang="en-US"'
         ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">',
         '  <resources>',
-        '    <object id="1" type="model">',
+        '    <object id="2" type="model">',
         '      <mesh>',
         '        <vertices>',
     ]
     for x, y, z in vlist:
-        parts.append(f'          <vertex x="{x:.6f}" y="{y:.6f}" z="{z:.6f}"/>')
-    parts += ['        </vertices>', '        <triangles>']
+        geom_parts.append(f'          <vertex x="{x:.6f}" y="{y:.6f}" z="{z:.6f}"/>')
+    geom_parts += ['        </vertices>', '        <triangles>']
     for v1, v2, v3 in tlist:
-        parts.append(f'          <triangle v1="{v1}" v2="{v2}" v3="{v3}"/>')
-    parts += [
+        geom_parts.append(f'          <triangle v1="{v1}" v2="{v2}" v3="{v3}"/>')
+    geom_parts += [
         '        </triangles>',
         '      </mesh>',
         '    </object>',
         '  </resources>',
-        '  <build>',
-        '    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>',
-        '  </build>',
         '</model>',
     ]
-    model_xml = "\n".join(parts)
+    geom_xml = "\n".join(geom_parts)
+
+    # ── 3D/3dmodel.model  (BBS assembly — triggers BBS loader via 3mfVersion) ─
+    asm_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<model unit="millimeter" xml:lang="en-US"\n'
+        ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"\n'
+        ' xmlns:BambuStudio="http://schemas.bambulab.com/package/2021"\n'
+        ' xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06"\n'
+        ' requiredextensions="p">\n'
+        '  <metadata name="BambuStudio:3mfVersion">1</metadata>\n'
+        '  <resources>\n'
+        '    <object id="1" type="model">\n'
+        '      <components>\n'
+        '        <component objectid="2" p:path="/3D/Objects/model.model"'
+        ' transform="1 0 0 0 1 0 0 0 1 0 0 0"/>\n'
+        '      </components>\n'
+        '    </object>\n'
+        '  </resources>\n'
+        '  <build>\n'
+        '    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>\n'
+        '  </build>\n'
+        '</model>\n'
+    )
+
+    # ── 3D/_rels/3dmodel.model.rels  (production-extension cross-file ref) ────
+    geom_rels = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<Relationships'
+        ' xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+        '  <Relationship Target="/3D/Objects/model.model" Id="rel-geom-1"'
+        ' Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>\n'
+        '</Relationships>\n'
+    )
 
     # ── Metadata/model_settings.config ────────────────────────────────────────
     model_cfg = (
@@ -291,7 +325,9 @@ def _build_project_3mf(
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("[Content_Types].xml", ctypes)
         zf.writestr("_rels/.rels", rels)
-        zf.writestr("3D/3dmodel.model", model_xml)
+        zf.writestr("3D/3dmodel.model", asm_xml)
+        zf.writestr("3D/_rels/3dmodel.model.rels", geom_rels)
+        zf.writestr("3D/Objects/model.model", geom_xml)
         zf.writestr("Metadata/model_settings.config", model_cfg)
         zf.writestr("Metadata/machine_settings_0.json",  json.dumps(machine,  indent=2))
         zf.writestr("Metadata/process_settings_0.json",  json.dumps(process,  indent=2))
@@ -315,11 +351,10 @@ async def slice_model(
 
     Slice input_path (binary STL) with OrcaSlicer, return path to output .3mf.
 
-    Builds a project 3MF where 3D/Objects/model.model is the primary entry
-    point (referenced from _rels/.rels).  OrcaSlicer treats files under
-    3D/Objects/ as geometry files and loads inline mesh from them; making it
-    the entry point bypasses the CLI-mode component-resolution bug in 2.3.2
-    that prevented geometry loading when 3D/3dmodel.model was the entry point.
+    Builds a BambuStudio project 3MF (BambuStudio:3mfVersion=1) so the BBS
+    loader activates and applies embedded Metadata/*.json presets as the active
+    slice config.  Geometry lives in 3D/Objects/model.model (cross-referenced
+    via production-extension rels) with canonical <vertex>/<triangle> elements.
 
     Set ORCA_APPIMAGE to use the AppImage directly (preferred for headless).
     Set ORCA_DISPLAY to override $DISPLAY (e.g. ":99" for Xvfb).
