@@ -327,24 +327,11 @@ def _build_project_3mf(
     ]
     model_xml = "\n".join(parts)
 
-    # ── Metadata/model_settings.config  (preset hints — read on some code paths) ──
-    model_cfg = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        "<config>\n"
-        "  <plate>\n"
-        '    <metadata key="plater_id" value="1"/>\n'
-        '    <metadata key="plater_name" value=""/>\n'
-        '    <metadata key="locked" value="false"/>\n'
-        f'    <metadata key="printer_settings_id" value="{m_name}"/>\n'
-        f'    <metadata key="print_settings_id" value="{pr_name}"/>\n'
-        f'    <metadata key="filament_settings_id" value="{fi_name}"/>\n'
-        '    <object id="1" instanceid="0">\n'
-        '      <metadata key="name" value="model"/>\n'
-        '      <metadata key="extruder" value="1"/>\n'
-        '    </object>\n'
-        '  </plate>\n'
-        "</config>\n"
-    )
+    # NOTE: model_settings.config intentionally omitted — when present, it
+    # declares printer_settings_id/print_settings_id that OrcaSlicer tries to
+    # match against loaded presets by name, failing the compatibility check
+    # if names differ. With --load-settings driving all configuration, the 3MF
+    # should be pure geometry.
 
     # ── [Content_Types].xml ───────────────────────────────────────────────────
     ctypes = (
@@ -354,8 +341,6 @@ def _build_project_3mf(
         ' ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n'
         '  <Default Extension="model"'
         ' ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n'
-        '  <Override PartName="/Metadata/model_settings.config"'
-        ' ContentType="application/xml"/>\n'
         '</Types>\n'
     )
 
@@ -374,7 +359,6 @@ def _build_project_3mf(
         zf.writestr("[Content_Types].xml", ctypes)
         zf.writestr("_rels/.rels", rels)
         zf.writestr("3D/3dmodel.model", model_xml)
-        zf.writestr("Metadata/model_settings.config", model_cfg)
     return buf.getvalue()
 
 
@@ -533,12 +517,13 @@ async def slice_model(
     process_for_cli["version"] = "2.3.2.0"
     process_for_cli["printer_settings_id"] = "Bambu Lab P1S 0.4 nozzle"
 
-    mach_fd, mach_settings_path = tempfile.mkstemp(suffix=".json", prefix="orca_mach_")
-    with os.fdopen(mach_fd, "w") as _f:
-        json.dump(machine_for_cli, _f)
-    proc_fd, proc_settings_path = tempfile.mkstemp(suffix=".json", prefix="orca_proc_")
-    with os.fdopen(proc_fd, "w") as _f:
-        json.dump(process_for_cli, _f)
+    # Deterministic paths so failed runs leave a debuggable footprint.
+    mach_settings_path = "/tmp/orca_holomat_machine.json"
+    proc_settings_path = "/tmp/orca_holomat_process.json"
+    with open(mach_settings_path, "w") as _f:
+        json.dump(machine_for_cli, _f, indent=2)
+    with open(proc_settings_path, "w") as _f:
+        json.dump(process_for_cli, _f, indent=2)
 
     fd, project_path = tempfile.mkstemp(suffix=".3mf", prefix="orca_proj_")
     try:
@@ -599,10 +584,7 @@ async def slice_model(
                 os.close(fd)
         with contextlib.suppress(OSError):
             os.unlink(project_path)
-        with contextlib.suppress(OSError):
-            os.unlink(proc_settings_path)
-        with contextlib.suppress(OSError):
-            os.unlink(mach_settings_path)
+        # Settings JSONs are kept at /tmp/orca_holomat_*.json for debugging.
 
 
 async def compile_openscad(scad_code: str, output_path: str) -> str:
