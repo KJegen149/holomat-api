@@ -462,7 +462,18 @@ async def slice_model(
         fd = -1
 
         orca_bin = ORCA_APPIMAGE if ORCA_APPIMAGE else ORCA_CLI
-        cmd = [orca_bin, "--slice", "0", "--export-3mf", output_path, project_path]
+        # --no-check skips OrcaSlicer's validity checks (notably the
+        # "Add G92 E0 to layer_gcode" check that fires when CLI mode runs on
+        # compiled-in defaults because no preset selection exists at
+        # ~/.config/OrcaSlicer/ and 3MF embedded presets aren't bound).
+        # The disk profile patches still apply if preset binding does work.
+        cmd = [
+            orca_bin,
+            "--slice", "0",
+            "--no-check",
+            "--export-3mf", output_path,
+            project_path,
+        ]
         log.info("OrcaSlicer slice: %s", " ".join(cmd))
 
         env = dict(os.environ)
