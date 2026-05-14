@@ -520,13 +520,33 @@ async def slice_model(
     process_for_cli["version"] = "2.3.2.0"
     process_for_cli["printer_settings_id"] = "Bambu Lab P1S 0.4 nozzle"
 
+    # Minimal filament JSON for --load-filaments. The SIGSEGV when
+    # machine.inherits is set happens in
+    # update_values_to_printer_extruders_for_multiple_filaments — that path
+    # needs at least one filament loaded to iterate safely.
+    filament_for_cli = {
+        "type": "filament",
+        "name": "holomat_pla",
+        "from": "User",
+        "inherits": "Bambu PLA Basic @BBL X1C",
+        "instantiation": "true",
+        "version": "2.3.2.0",
+        "filament_type": ["PLA"],
+        "compatible_printers": ["Bambu Lab P1S 0.4 nozzle"],
+        "compatible_printers_condition": "",
+        "filament_settings_id": ["holomat_pla"],
+    }
+
     # Deterministic paths so failed runs leave a debuggable footprint.
     mach_settings_path = "/tmp/orca_holomat_machine.json"
     proc_settings_path = "/tmp/orca_holomat_process.json"
+    fila_settings_path = "/tmp/orca_holomat_filament.json"
     with open(mach_settings_path, "w") as _f:
         json.dump(machine_for_cli, _f, indent=2)
     with open(proc_settings_path, "w") as _f:
         json.dump(process_for_cli, _f, indent=2)
+    with open(fila_settings_path, "w") as _f:
+        json.dump(filament_for_cli, _f, indent=2)
 
     fd, project_path = tempfile.mkstemp(suffix=".3mf", prefix="orca_proj_")
     try:
@@ -535,11 +555,15 @@ async def slice_model(
         fd = -1
 
         orca_bin = ORCA_APPIMAGE if ORCA_APPIMAGE else ORCA_CLI
-        # --load-settings takes machine;process (semicolon-separated)
+        # --load-settings takes machine;process (semicolon-separated).
+        # --load-filaments provides the filament context that the multi-
+        # filament update path expects (avoiding the SIGSEGV when machine
+        # has inherits set).
         cmd = [
             orca_bin,
             "--datadir", str(config_dir),
             "--load-settings", f"{mach_settings_path};{proc_settings_path}",
+            "--load-filaments", fila_settings_path,
             "--slice", "0",
             "--export-3mf", output_path,
             project_path,
