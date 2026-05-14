@@ -377,6 +377,7 @@ async def slice_model(
         "type": "process",
         "from": "User",
         "name": "holomat_override",
+        "compatible_printers_condition": "",
         "use_relative_e_distances": "0",
         "layer_gcode": "G92 E0\n",
         "sparse_infill_density": str(infill),
