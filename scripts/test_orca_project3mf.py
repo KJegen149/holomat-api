@@ -7,10 +7,10 @@ Usage:
   ORCA_DISPLAY=:99 \
   python3 scripts/test_orca_project3mf.py [optional_input.stl]
 
-Creates a tiny test STL (1cm cube) if no input file is provided,
-then slices it via the new project-3MF code path and reports the result.
+Creates test STLs (1cm cube + 15mm sphere) if no input file is provided,
+then slices each via slice_model() and reports the results.
 """
-import os, struct, sys, asyncio, tempfile
+import math, os, struct, sys, asyncio, tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.slicer import (
@@ -46,6 +46,47 @@ def make_test_stl() -> str:
             for v in (v1, v2, v3):
                 for coord in v:
                     f.write(struct.pack("<f", float(coord) * 10.0))  # 10mm cube
+            f.write(b"\x00\x00")
+    return path
+
+
+def make_sphere_stl(radius_mm: float = 15.0, stacks: int = 16, slices: int = 16) -> str:
+    """Generate a UV sphere binary STL. Non-planar geometry stress-tests the parser."""
+    faces = []
+    def v(stack_i, slice_j):
+        phi   = math.pi * stack_i / stacks        # 0 .. pi
+        theta = 2 * math.pi * slice_j / slices    # 0 .. 2pi
+        x = radius_mm * math.sin(phi) * math.cos(theta)
+        y = radius_mm * math.sin(phi) * math.sin(theta)
+        z = radius_mm * math.cos(phi)
+        return (x, y, z + radius_mm)  # shift up so base sits at z=0
+
+    def normal(va, vb, vc):
+        ax, ay, az = vb[0]-va[0], vb[1]-va[1], vb[2]-va[2]
+        bx, by, bz = vc[0]-va[0], vc[1]-va[1], vc[2]-va[2]
+        nx, ny, nz = ay*bz-az*by, az*bx-ax*bz, ax*by-ay*bx
+        L = math.sqrt(nx*nx+ny*ny+nz*nz) or 1.0
+        return (nx/L, ny/L, nz/L)
+
+    for i in range(stacks):
+        for j in range(slices):
+            v00, v01 = v(i, j), v(i, j+1)
+            v10, v11 = v(i+1, j), v(i+1, j+1)
+            if i != 0:
+                faces.append((normal(v00, v11, v10), v00, v11, v10))
+            if i != stacks - 1:
+                faces.append((normal(v00, v01, v11), v00, v01, v11))
+
+    fd, path = tempfile.mkstemp(suffix=".stl", prefix="orca_test_sphere_")
+    with os.fdopen(fd, "wb") as f:
+        f.write(b"\x00" * 80)
+        f.write(struct.pack("<I", len(faces)))
+        for n, v1, v2, v3 in faces:
+            for coord in n:
+                f.write(struct.pack("<f", float(coord)))
+            for vtx in (v1, v2, v3):
+                for coord in vtx:
+                    f.write(struct.pack("<f", float(coord)))
             f.write(b"\x00\x00")
     return path
 
@@ -93,50 +134,55 @@ async def main():
     print(f"    use_relative_e_distances = {machine.get('use_relative_e_distances','NOT SET')}")
     print(f"    machine_extruder_count   = {machine.get('machine_extruder_count','NOT SET')}")
 
-    # 4. Build project 3MF
-    stl_path = sys.argv[1] if len(sys.argv) > 1 else make_test_stl()
-    cleanup_stl = len(sys.argv) < 2
-    try:
-        vlist, tlist = _parse_binary_stl(stl_path)
-        print(f"OK  STL parsed: {len(vlist)} vertices, {len(tlist)} triangles")
+    import pathlib, zipfile as _zip
 
-        import tempfile as _tmp, zipfile as _zip
-        proj_bytes = _build_project_3mf(stl_path, machine, process, filament)
-        print(f"OK  Project 3MF built: {len(proj_bytes):,} bytes")
+    # If an STL was provided on the command line, just slice that one.
+    if len(sys.argv) > 1:
+        shapes = [("custom", sys.argv[1], False)]
+    else:
+        cube_path   = make_test_stl()
+        sphere_path = make_sphere_stl()
+        shapes = [
+            ("cube (10mm)",   cube_path,   True),
+            ("sphere (15mm)", sphere_path, True),
+        ]
 
-        # Peek inside the ZIP to verify structure
-        with _zip.ZipFile(__import__("io").BytesIO(proj_bytes)) as zf:
-            names = zf.namelist()
-        print(f"    ZIP contents: {names}")
+    all_ok = True
+    for label, stl_path, cleanup in shapes:
+        print(f"\n── Shape: {label} ─────────────────────────────────")
+        try:
+            vlist, tlist = _parse_binary_stl(stl_path)
+            print(f"OK  STL parsed: {len(vlist)} vertices, {len(tlist)} triangles")
 
-        # Save project 3MF to disk for manual debugging
-        proj_disk = "/tmp/orca_debug_proj.3mf"
-        with open(proj_disk, "wb") as f:
-            f.write(proj_bytes)
-        print(f"    Project 3MF saved to: {proj_disk}")
-        print(f"    printable_area: {machine.get('printable_area', 'NOT SET')}")
-        print()
-        print(f"    Debug cmd:")
-        orca_bin = os.environ.get("ORCA_APPIMAGE") or "/usr/bin/orca-slicer"
-        disp = os.environ.get("ORCA_DISPLAY", "")
-        disp_prefix = f"DISPLAY={disp} " if disp else ""
-        print(f"    {disp_prefix}{orca_bin} --debug 3 --slice 0 --export-3mf /tmp/orca_debug_out.3mf {proj_disk} 2>&1 | grep -iE 'plate|preset|printable|volume|object|error|loaded' | head -60")
+            proj_bytes = _build_project_3mf(stl_path, machine, process, filament)
+            print(f"OK  Project 3MF built: {len(proj_bytes):,} bytes")
 
-        # 5. Run OrcaSlicer
-        print("\n--- Running OrcaSlicer ---")
-        out_path = await slice_model(
-            input_path=stl_path,
-            quality="standard",
-            infill=15,
-            supports="none",
-            output_dir="/tmp",
-        )
-        import pathlib
-        sz = pathlib.Path(out_path).stat().st_size
-        print(f"\nSUCCESS: {out_path}  ({sz:,} bytes)")
-    finally:
-        if cleanup_stl and os.path.exists(stl_path):
-            os.unlink(stl_path)
+            with _zip.ZipFile(__import__("io").BytesIO(proj_bytes)) as zf:
+                print(f"    ZIP contents: {zf.namelist()}")
+
+            print("--- Running OrcaSlicer ---")
+            out_path = await slice_model(
+                input_path=stl_path,
+                quality="standard",
+                infill=15,
+                supports="none",
+                output_dir="/tmp",
+            )
+            sz = pathlib.Path(out_path).stat().st_size
+            print(f"SUCCESS: {out_path}  ({sz:,} bytes)")
+        except Exception as e:
+            print(f"FAIL: {e}")
+            all_ok = False
+        finally:
+            if cleanup and os.path.exists(stl_path):
+                os.unlink(stl_path)
+
+    print()
+    if all_ok:
+        print("All shapes sliced successfully — pipeline ready.")
+    else:
+        print("One or more shapes failed.")
+        sys.exit(1)
 
 
 asyncio.run(main())
