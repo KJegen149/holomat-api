@@ -247,13 +247,14 @@ def _build_project_3mf(
     filament: dict,
 ) -> bytes:
     """
-    Build a project 3MF containing the STL geometry.
+    Build a BambuStudio project 3MF.
 
-    Pure 3MF (no BambuStudio markers): OrcaSlicer's standard 3mf.cpp loader
-    loads inline mesh from build objects with canonical <vertex>/<triangle>
-    elements.  Settings are NOT loaded from the embedded Metadata/*.json because
-    OrcaSlicer resolves preset names to its BBL disk profiles, which take
-    precedence.  Callers must pass settings overrides via --load-settings instead.
+    Includes the BambuStudio:3mfVersion=1 marker so OrcaSlicer's BBS loader
+    activates and looks up the preset names from model_settings.config
+    (printer_settings_id etc.) in the BBL disk profile directory.  Geometry
+    lives in 3D/Objects/model.model (referenced via a production-extension
+    component from 3D/3dmodel.model) because the BBS loader does not load
+    inline mesh from the assembly file.
     """
     m_name  = machine.get("name", "Bambu Lab P1S 0.4 nozzle")
     pr_name = process.get("name", "0.20mm Standard @BBL X1C")
@@ -261,34 +262,64 @@ def _build_project_3mf(
 
     vlist, tlist = _parse_binary_stl(stl_path)
 
-    # ── 3D/3dmodel.model  (pure 3MF core spec — no BambuStudio markers) ──────
-    parts = [
+    # ── 3D/Objects/model.model  (geometry — pure 3MF, object id=2) ───────────
+    geom_parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<model unit="millimeter" xml:lang="en-US"'
         ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">',
         '  <resources>',
-        '    <object id="1" type="model">',
+        '    <object id="2" type="model">',
         '      <mesh>',
         '        <vertices>',
     ]
     for x, y, z in vlist:
-        parts.append(f'          <vertex x="{x:.6f}" y="{y:.6f}" z="{z:.6f}"/>')
-    parts += ['        </vertices>', '        <triangles>']
+        geom_parts.append(f'          <vertex x="{x:.6f}" y="{y:.6f}" z="{z:.6f}"/>')
+    geom_parts += ['        </vertices>', '        <triangles>']
     for v1, v2, v3 in tlist:
-        parts.append(f'          <triangle v1="{v1}" v2="{v2}" v3="{v3}"/>')
-    parts += [
+        geom_parts.append(f'          <triangle v1="{v1}" v2="{v2}" v3="{v3}"/>')
+    geom_parts += [
         '        </triangles>',
         '      </mesh>',
         '    </object>',
         '  </resources>',
-        '  <build>',
-        '    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>',
-        '  </build>',
         '</model>',
     ]
-    model_xml = "\n".join(parts)
+    geom_xml = "\n".join(geom_parts)
 
-    # ── Metadata/model_settings.config ────────────────────────────────────────
+    # ── 3D/3dmodel.model  (BBS assembly — triggers BBS loader via 3mfVersion) ─
+    asm_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<model unit="millimeter" xml:lang="en-US"\n'
+        ' xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"\n'
+        ' xmlns:BambuStudio="http://schemas.bambulab.com/package/2021"\n'
+        ' xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06"\n'
+        ' requiredextensions="p">\n'
+        '  <metadata name="BambuStudio:3mfVersion">1</metadata>\n'
+        '  <resources>\n'
+        '    <object id="1" type="model">\n'
+        '      <components>\n'
+        '        <component objectid="2" p:path="/3D/Objects/model.model"'
+        ' transform="1 0 0 0 1 0 0 0 1 0 0 0"/>\n'
+        '      </components>\n'
+        '    </object>\n'
+        '  </resources>\n'
+        '  <build>\n'
+        '    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>\n'
+        '  </build>\n'
+        '</model>\n'
+    )
+
+    # ── 3D/_rels/3dmodel.model.rels  (production-extension cross-file ref) ────
+    geom_rels = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<Relationships'
+        ' xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+        '  <Relationship Target="/3D/Objects/model.model" Id="rel-geom-1"'
+        ' Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>\n'
+        '</Relationships>\n'
+    )
+
+    # ── Metadata/model_settings.config  (preset name binding for BBS loader) ──
     model_cfg = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         "<config>\n"
@@ -335,7 +366,9 @@ def _build_project_3mf(
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("[Content_Types].xml", ctypes)
         zf.writestr("_rels/.rels", rels)
-        zf.writestr("3D/3dmodel.model", model_xml)
+        zf.writestr("3D/3dmodel.model", asm_xml)
+        zf.writestr("3D/_rels/3dmodel.model.rels", geom_rels)
+        zf.writestr("3D/Objects/model.model", geom_xml)
         zf.writestr("Metadata/model_settings.config", model_cfg)
         zf.writestr("Metadata/machine_settings_0.json",  json.dumps(machine,  indent=2))
         zf.writestr("Metadata/process_settings_0.json",  json.dumps(process,  indent=2))
@@ -357,11 +390,12 @@ async def slice_model(
     """
     Slice input_path (binary STL) with OrcaSlicer, return path to output .3mf.
 
-    Approach: pass the STL directly to OrcaSlicer and load the BBL profiles
-    via --load-settings + --load-filaments (these have higher priority than
-    3MF embedded settings per `orca-slicer --help`).  Per-job overrides
-    (infill, supports) are baked into a temp copy of the process profile so
-    the BBL file isn't permanently mutated.
+    Approach: build a BambuStudio project 3MF (BambuStudio:3mfVersion=1) so
+    OrcaSlicer's BBS loader activates and resolves the preset names from
+    model_settings.config (printer_settings_id, etc.) against the BBL disk
+    profiles.  --load-settings is NOT used because passing machine settings
+    that way segfaults in OrcaSlicer 2.3.2
+    (update_values_to_printer_extruders_for_multiple_filaments).
 
     Patches the BBL P1S machine/process profiles on disk once (idempotent)
     to set use_relative_e_distances=0 and G92 E0 in layer_gcode — these keys
@@ -386,47 +420,49 @@ async def slice_model(
     }
     process_file = process_file_map.get(quality, process_file_map["standard"])
 
-    machine_path  = profiles_dir / "machine"  / "Bambu Lab P1S 0.4 nozzle.json"
-    filament_path = profiles_dir / "filament" / "Bambu PLA Basic @BBL X1C.json"
-    process_path  = profiles_dir / "process"  / process_file
+    machine_json  = profiles_dir / "machine"  / "Bambu Lab P1S 0.4 nozzle.json"
+    filament_json = profiles_dir / "filament" / "Bambu PLA Basic @BBL X1C.json"
+    process_json  = profiles_dir / "process"  / process_file
 
     # Patch the BBL P1S profiles on disk so the validator passes.  Idempotent.
     _patch_bbl_profiles_for_p1s(profiles_dir, process_file)
 
-    # Build a temp process profile = BBL process + per-job overrides, so we
-    # don't permanently mutate the BBL file with job-specific values.
-    try:
-        proc_data = json.loads(process_path.read_text(encoding="utf-8"))
-    except Exception as e:
-        raise RuntimeError(f"Failed to read process profile {process_path}: {e}") from e
-    proc_data["sparse_infill_density"] = str(infill)
+    # Flatten the full inheritance chain for each profile (for embedded JSONs).
+    machine  = _resolve_profile(machine_json,  profiles_dir)
+    process  = _resolve_profile(process_json,  profiles_dir)
+    filament = _resolve_profile(filament_json, profiles_dir)
+
+    machine["name"]  = "Bambu Lab P1S 0.4 nozzle"
+    process["name"]  = process_file.removesuffix(".json")
+    filament["name"] = "Bambu PLA Basic @BBL X1C"
+
+    machine.update(_P1S_MACHINE_OVERRIDES)
+
+    process["sparse_infill_density"] = str(infill)
+    process["use_relative_e_distances"] = "0"
+    process["layer_gcode"] = "G92 E0\n"
     if supports == "none":
-        proc_data["enable_support"] = "0"
+        process["enable_support"] = "0"
     elif supports == "normal":
-        proc_data["enable_support"] = "1"
-        proc_data["support_type"]   = "normal(auto)"
+        process["enable_support"] = "1"
+        process["support_type"]   = "normal(auto)"
     elif supports == "tree":
-        proc_data["enable_support"] = "1"
-        proc_data["support_type"]   = "tree(auto)"
+        process["enable_support"] = "1"
+        process["support_type"]   = "tree(auto)"
 
     stem        = Path(input_path).stem
     output_path = str(Path(output_dir) / f"{stem}.3mf")
 
-    fd_p, custom_process_path = tempfile.mkstemp(suffix=".json", prefix="orca_proc_")
+    project_bytes = _build_project_3mf(input_path, machine, process, filament)
+
+    fd, project_path = tempfile.mkstemp(suffix=".3mf", prefix="orca_proj_")
     try:
-        os.write(fd_p, json.dumps(proc_data).encode())
-        os.close(fd_p)
-        fd_p = -1
+        os.write(fd, project_bytes)
+        os.close(fd)
+        fd = -1
 
         orca_bin = ORCA_APPIMAGE if ORCA_APPIMAGE else ORCA_CLI
-        cmd = [
-            orca_bin,
-            "--slice", "0",
-            "--load-settings", f"{machine_path};{custom_process_path}",
-            "--load-filaments", str(filament_path),
-            "--export-3mf", output_path,
-            input_path,
-        ]
+        cmd = [orca_bin, "--slice", "0", "--export-3mf", output_path, project_path]
         log.info("OrcaSlicer slice: %s", " ".join(cmd))
 
         env = dict(os.environ)
@@ -465,11 +501,11 @@ async def slice_model(
         return output_path
 
     finally:
-        if fd_p >= 0:
+        if fd >= 0:
             with contextlib.suppress(OSError):
-                os.close(fd_p)
+                os.close(fd)
         with contextlib.suppress(OSError):
-            os.unlink(custom_process_path)
+            os.unlink(project_path)
 
 
 async def compile_openscad(scad_code: str, output_path: str) -> str:
