@@ -486,24 +486,56 @@ async def slice_model(
 
     project_bytes = _build_project_3mf(input_path, machine, process, filament)
 
-    # Build a process-only JSON for --load-settings with cleared compatibility
-    # constraints. The CLI validator just needs G92 E0 in the active process's
-    # layer_gcode; we don't pass a machine profile because that segfaults in
-    # update_values_to_printer_extruders_for_multiple_filaments (2.3.2 bug).
-    # OrcaSlicer.conf preset binding is NOT consulted by CLI mode, confirmed
-    # via --debug: current_printer_system_name stays empty even with --datadir.
+    # Build minimal machine + process JSONs for --load-settings.
+    #
+    # Process-only failed with rc=239 "process not compatible with printer"
+    # despite compatible_printers=[] / compatible_printers_condition="" — the
+    # CLI check at slic3r.cpp:2559 appears to compare loaded process against
+    # the current (empty) printer name and fail.
+    #
+    # We pass a *minimal* machine JSON (just the keys needed to satisfy the
+    # validator + compatibility check, no AMS/filament arrays). The previous
+    # SIGSEGV was with the fully-flattened 106-key BBL machine; a stripped
+    # machine with 1 extruder / 1 filament should not trigger the crash path
+    # in update_values_to_printer_extruders_for_multiple_filaments.
+    machine_for_cli = {
+        "type": "machine",
+        "name": "Bambu Lab P1S 0.4 nozzle",
+        "from": "User",
+        "inherits": "",
+        "instantiation": "true",
+        "version": "2.3.2.0",
+        "printer_technology": "FFF",
+        "printer_model": "Bambu Lab P1S",
+        "printer_variant": "0.4",
+        "machine_extruder_count": "1",
+        "single_extruder_multi_material": "0",
+        "use_relative_e_distances": "0",
+        "printable_area": ["0x0", "256x0", "256x256", "0x256"],
+        "printable_height": "250",
+        "nozzle_diameter": ["0.4"],
+        "extruder_offset": ["0x0"],
+        "retraction_length": ["0.8"],
+        "retraction_speed": ["30"],
+        "deretraction_speed": ["30"],
+    }
+
     process_for_cli = dict(process)
     process_for_cli["type"] = "process"
     process_for_cli["name"] = "holomat_p1s_process"
     process_for_cli["from"] = "User"
     process_for_cli["inherits"] = ""
     process_for_cli["instantiation"] = "true"
-    process_for_cli["compatible_printers"] = []
+    process_for_cli["compatible_printers"] = ["Bambu Lab P1S 0.4 nozzle"]
     process_for_cli["compatible_printers_condition"] = ""
     process_for_cli["layer_gcode"] = "G92 E0\n"
     process_for_cli["use_relative_e_distances"] = "0"
     process_for_cli["version"] = "2.3.2.0"
+    process_for_cli["printer_settings_id"] = "Bambu Lab P1S 0.4 nozzle"
 
+    mach_fd, mach_settings_path = tempfile.mkstemp(suffix=".json", prefix="orca_mach_")
+    with os.fdopen(mach_fd, "w") as _f:
+        json.dump(machine_for_cli, _f)
     proc_fd, proc_settings_path = tempfile.mkstemp(suffix=".json", prefix="orca_proc_")
     with os.fdopen(proc_fd, "w") as _f:
         json.dump(process_for_cli, _f)
@@ -515,10 +547,11 @@ async def slice_model(
         fd = -1
 
         orca_bin = ORCA_APPIMAGE if ORCA_APPIMAGE else ORCA_CLI
+        # --load-settings takes machine;process (semicolon-separated)
         cmd = [
             orca_bin,
             "--datadir", str(config_dir),
-            "--load-settings", proc_settings_path,
+            "--load-settings", f"{mach_settings_path};{proc_settings_path}",
             "--slice", "0",
             "--export-3mf", output_path,
             project_path,
@@ -568,6 +601,8 @@ async def slice_model(
             os.unlink(project_path)
         with contextlib.suppress(OSError):
             os.unlink(proc_settings_path)
+        with contextlib.suppress(OSError):
+            os.unlink(mach_settings_path)
 
 
 async def compile_openscad(scad_code: str, output_path: str) -> str:
