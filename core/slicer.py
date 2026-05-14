@@ -486,6 +486,28 @@ async def slice_model(
 
     project_bytes = _build_project_3mf(input_path, machine, process, filament)
 
+    # Build a process-only JSON for --load-settings with cleared compatibility
+    # constraints. The CLI validator just needs G92 E0 in the active process's
+    # layer_gcode; we don't pass a machine profile because that segfaults in
+    # update_values_to_printer_extruders_for_multiple_filaments (2.3.2 bug).
+    # OrcaSlicer.conf preset binding is NOT consulted by CLI mode, confirmed
+    # via --debug: current_printer_system_name stays empty even with --datadir.
+    process_for_cli = dict(process)
+    process_for_cli["type"] = "process"
+    process_for_cli["name"] = "holomat_p1s_process"
+    process_for_cli["from"] = "User"
+    process_for_cli["inherits"] = ""
+    process_for_cli["instantiation"] = "true"
+    process_for_cli["compatible_printers"] = []
+    process_for_cli["compatible_printers_condition"] = ""
+    process_for_cli["layer_gcode"] = "G92 E0\n"
+    process_for_cli["use_relative_e_distances"] = "0"
+    process_for_cli["version"] = "2.3.2.0"
+
+    proc_fd, proc_settings_path = tempfile.mkstemp(suffix=".json", prefix="orca_proc_")
+    with os.fdopen(proc_fd, "w") as _f:
+        json.dump(process_for_cli, _f)
+
     fd, project_path = tempfile.mkstemp(suffix=".3mf", prefix="orca_proj_")
     try:
         os.write(fd, project_bytes)
@@ -493,12 +515,10 @@ async def slice_model(
         fd = -1
 
         orca_bin = ORCA_APPIMAGE if ORCA_APPIMAGE else ORCA_CLI
-        # --datadir is required for headless CLI to load the active preset
-        # selection from OrcaSlicer.conf. Without it, CLI runs on compiled-in
-        # defaults and the validator fires ("Add G92 E0 to layer_gcode").
         cmd = [
             orca_bin,
             "--datadir", str(config_dir),
+            "--load-settings", proc_settings_path,
             "--slice", "0",
             "--export-3mf", output_path,
             project_path,
@@ -546,6 +566,8 @@ async def slice_model(
                 os.close(fd)
         with contextlib.suppress(OSError):
             os.unlink(project_path)
+        with contextlib.suppress(OSError):
+            os.unlink(proc_settings_path)
 
 
 async def compile_openscad(scad_code: str, output_path: str) -> str:
