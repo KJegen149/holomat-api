@@ -138,19 +138,17 @@ async def main():
 
     # If an STL was provided on the command line, just slice it with defaults.
     if len(sys.argv) > 1:
-        shapes = [("custom", sys.argv[1], False, "none")]
+        shapes = [("custom", sys.argv[1], False)]
     else:
         cube_path   = make_test_stl()
         sphere_path = make_sphere_stl()
-        # (label, path, cleanup, supports)  — sphere needs supports because it
-        # only touches the bed at a single tangent point.
         shapes = [
-            ("cube (10mm)",                  cube_path,   True, "none"),
-            ("sphere (15mm, tree supports)", sphere_path, True, "tree"),
+            ("cube (10mm)",   cube_path,   True),
+            ("sphere (15mm)", sphere_path, True),
         ]
 
     all_ok = True
-    for label, stl_path, cleanup, supports in shapes:
+    for label, stl_path, cleanup in shapes:
         print(f"\n── Shape: {label} ─────────────────────────────────")
         try:
             vlist, tlist = _parse_binary_stl(stl_path)
@@ -162,12 +160,13 @@ async def main():
             with _zip.ZipFile(__import__("io").BytesIO(proj_bytes)) as zf:
                 print(f"    ZIP contents: {zf.namelist()}")
 
-            print(f"--- Running OrcaSlicer (supports={supports}) ---")
+            # slice_model defaults to supports="tree" → tree(auto): supports
+            # are auto-placed only where overhangs need them.
+            print("--- Running OrcaSlicer (supports=tree auto) ---")
             out_path = await slice_model(
                 input_path=stl_path,
                 quality="standard",
                 infill=15,
-                supports=supports,
                 output_dir="/tmp",
             )
             sz = pathlib.Path(out_path).stat().st_size

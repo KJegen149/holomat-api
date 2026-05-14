@@ -370,7 +370,7 @@ async def slice_model(
     input_path: str,
     quality: str = "standard",
     infill: int = 15,
-    supports: str = "none",
+    supports: str = "tree",
     output_dir: str = "/tmp",
 ) -> str:
     """
