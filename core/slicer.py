@@ -358,6 +358,11 @@ async def slice_model(
 
     # Per-job overrides.
     process["sparse_infill_density"] = str(infill)
+    # Force absolute E — OrcaSlicer validator rejects relative-E without G92 E0
+    # in layer_gcode.  The machine preset already carries this via _P1S_MACHINE_OVERRIDES
+    # but the process preset may pull a conflicting default in "other vendor" mode.
+    process["use_relative_e_distances"] = "0"
+    process["layer_gcode"] = "G92 E0\n"
     if supports == "none":
         process["enable_support"] = "0"
     elif supports == "normal":
