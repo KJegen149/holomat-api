@@ -246,26 +246,27 @@ def _cloud_send_and_print(path_3mf: str) -> dict:
         mqttc.loop_stop()
         raise RuntimeError("Cloud MQTT connect timed out after 15 s")
 
+    from core.bambu_signing import sign_mqtt_payload
     subtask = filename.replace(".3mf", "")
     seq_id = str(int(time.time() * 1000) % 100000)
-    msg = {
-        "print": {
-            "sequence_id": seq_id,
-            "command": "project_file",
-            "param": "Metadata/plate_1.gcode",
-            "subtask_name": subtask,
-            "url": permanent_url,   # S3 URL instead of ftp:///cache/
-            "timelapse": False,
-            "bed_leveling": True,
-            "flow_cali": False,
-            "vibration_cali": False,
-            "layer_inspect": False,
-            "use_ams": False,
-        }
+    print_cmd = {
+        "sequence_id": seq_id,
+        "command": "project_file",
+        "param": "Metadata/plate_1.gcode",
+        "subtask_name": subtask,
+        "url": permanent_url,
+        "timelapse": False,
+        "bed_leveling": True,
+        "flow_cali": False,
+        "vibration_cali": False,
+        "layer_inspect": False,
+        "use_ams": False,
     }
+    # Wrap in ACS signature — required by P1S firmware post-Jan 2025
+    signed = sign_mqtt_payload(print_cmd, uid)
     topic = f"device/{BAMBU_SERIAL}/request"
-    log.info("Cloud MQTT: publishing project_file → %s", topic)
-    mqttc.publish(topic, json.dumps(msg), qos=0)
+    log.info("Cloud MQTT: publishing ACS-signed project_file → %s (cert=%s)", topic, signed["header"]["cert_id"])
+    mqttc.publish(topic, json.dumps({"print": signed}), qos=0)
     time.sleep(1)
     mqttc.loop_stop()
     mqttc.disconnect()
