@@ -273,10 +273,10 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
 
     client.on_message = _on_message
 
-    result = client.publish(topic, json.dumps(msg), qos=1)
-    result.wait_for_publish(timeout=10)
-    # Give the printer time to respond and flush the send buffer
-    time.sleep(2)
+    result = client.publish(topic, json.dumps(msg), qos=0)
+    # QoS 0: no PUBACK — sleep briefly to flush the send buffer before
+    # loop_stop()/disconnect() so the message isn't dropped mid-flight.
+    time.sleep(1)
     client.loop_stop()
     client.disconnect()
 
