@@ -229,16 +229,21 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
         client.loop_stop()
         raise RuntimeError("MQTT connect to printer timed out after 10 s")
 
+    # Subscribe to report topic so we can log the printer's ack/rejection
+    report_topic = f"device/{BAMBU_SERIAL}/report"
+    client.subscribe(report_topic, qos=0)
+
     subtask = filename.replace(".3mf", "")
     use_ams = ams_slot >= 0
+    # sequence_id must be unique per session — a static "0" is deduplicated
+    # by the printer and silently ignored after the first message.
+    seq_id = str(int(time.time() * 1000) % 100000)
     payload: dict = {
-        "sequence_id": "0",
+        "sequence_id": seq_id,
         "command": "project_file",
         "param": "Metadata/plate_1.gcode",
         "subtask_name": subtask,
         "url": f"ftp:///cache/{filename}",
-        # IDs required for a complete history record — printer shows
-        # "missing data" warning and needs manual confirm without them
         "task_id": "0",
         "subtask_id": "0",
         "profile_id": "0",
@@ -251,16 +256,35 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
         "use_ams": use_ams,
     }
     if use_ams:
-        # ams_mapping: one entry per print filament; value = global tray index.
-        # Single-material prints always use one filament → [ams_slot].
         payload["ams_mapping"] = [ams_slot]
     msg = {"print": payload}
     topic = f"device/{BAMBU_SERIAL}/request"
-    result = client.publish(topic, json.dumps(msg), qos=0)
-    result.wait_for_publish(timeout=5)
+
+    received: list[str] = []
+
+    def _on_message(client, userdata, message):
+        try:
+            data = json.loads(message.payload)
+            # Only log the print-command response, not periodic status pushes
+            if "print" in data and "command" in data.get("print", {}):
+                received.append(json.dumps(data["print"]))
+        except Exception:
+            pass
+
+    client.on_message = _on_message
+
+    result = client.publish(topic, json.dumps(msg), qos=1)
+    result.wait_for_publish(timeout=10)
+    # Give the printer time to respond and flush the send buffer
+    time.sleep(2)
     client.loop_stop()
     client.disconnect()
-    log.info("MQTT print trigger sent: %s → %s", topic, filename)
+
+    log.info("MQTT print trigger sent (seq=%s): %s → %s", seq_id, topic, filename)
+    if received:
+        log.info("Printer ack: %s", received[0])
+    else:
+        log.info("No ack received from printer within 2 s")
 
 
 # ── Public async API ─────────────────────────────────────────────────────────

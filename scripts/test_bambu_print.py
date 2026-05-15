@@ -40,7 +40,9 @@ DRY_RUN  = os.getenv("DRY_RUN", "").strip() not in ("", "0", "false", "no")
 AMS_SLOT = int(os.getenv("BAMBU_AMS_SLOT", "0"))
 
 from core.slicer import orca_available, slice_model  # noqa: E402
-from core.printer import _ftp_upload, _mqtt_print_trigger  # noqa: E402
+from core.printer import _ftp_upload, _mqtt_print_trigger
+import logging  # noqa: E402
+logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 
 
 # ── Minimal 1 cm cube STL ──────────────────────────────────────────────────────
