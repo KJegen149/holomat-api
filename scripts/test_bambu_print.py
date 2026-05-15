@@ -35,7 +35,9 @@ os.environ.setdefault("BAMBU_ACCESS_CODE", "14620600")
 os.environ.setdefault("BAMBU_SERIAL",      "01P00C5C0701414")
 os.environ.setdefault("ORCA_CLI",          "/usr/bin/orca-slicer")
 
-DRY_RUN = os.getenv("DRY_RUN", "").strip() not in ("", "0", "false", "no")
+DRY_RUN  = os.getenv("DRY_RUN", "").strip() not in ("", "0", "false", "no")
+# AMS slot: 0 = first tray of first AMS, 1 = second tray, etc. -1 = no AMS.
+AMS_SLOT = int(os.getenv("BAMBU_AMS_SLOT", "0"))
 
 from core.slicer import orca_available, slice_model  # noqa: E402
 from core.printer import _ftp_upload, _mqtt_print_trigger  # noqa: E402
@@ -83,7 +85,9 @@ async def main() -> None:
     access_code  = os.environ["BAMBU_ACCESS_CODE"]
     serial       = os.environ["BAMBU_SERIAL"]
 
+    ams_desc = f"slot {AMS_SLOT}" if AMS_SLOT >= 0 else "disabled (external spool)"
     print(f"Printer : {bambu_ip}  serial={serial}  access={access_code}")
+    print(f"AMS     : {ams_desc}")
     print(f"Dry-run : {DRY_RUN}\n")
 
     # 1. Check slicer
@@ -120,8 +124,9 @@ async def main() -> None:
         print(f"OK  Uploaded → /cache/{remote_filename}")
 
         # 5. MQTT print trigger
-        print("\n--- Triggering print via MQTT ---")
-        _mqtt_print_trigger(remote_filename)
+        ams_desc = f"AMS slot {AMS_SLOT}" if AMS_SLOT >= 0 else "external spool"
+        print(f"\n--- Triggering print via MQTT ({ams_desc}) ---")
+        _mqtt_print_trigger(remote_filename, ams_slot=AMS_SLOT)
         print(f"OK  Print triggered: {remote_filename}")
 
         print("\nSUCCESS — cube sent to printer.")

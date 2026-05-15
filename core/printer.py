@@ -25,6 +25,9 @@ BAMBU_SERIAL      = os.getenv("BAMBU_SERIAL", "")
 BAMBU_CERT        = os.getenv("BAMBU_CERT", "certs/printer.pem")
 BAMBU_FTP_PORT    = int(os.getenv("BAMBU_FTP_PORT", "990"))   # implicit FTPS
 BAMBU_MQTT_PORT   = int(os.getenv("BAMBU_MQTT_PORT", "8883"))
+# AMS slot index (0 = first tray of first AMS unit, 1 = second tray, etc.)
+# Set to -1 to disable AMS and print from the external spool holder.
+BAMBU_AMS_SLOT    = int(os.getenv("BAMBU_AMS_SLOT", "0"))
 
 
 class _ImplicitFTP_TLS(ftplib.FTP_TLS):
@@ -177,8 +180,11 @@ def _ftp_upload(path_3mf: str) -> str:
 
 # ── MQTT print trigger ────────────────────────────────────────────────────────
 
-def _mqtt_print_trigger(filename: str) -> None:
-    """Send project_file command over MQTT to trigger the print job."""
+def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
+    """Send project_file command over MQTT to trigger the print job.
+
+    ams_slot: AMS tray index (0-based globally). -1 = external spool, no AMS.
+    """
     try:
         import paho.mqtt.client as mqtt  # type: ignore
     except ImportError:
@@ -224,27 +230,31 @@ def _mqtt_print_trigger(filename: str) -> None:
         raise RuntimeError("MQTT connect to printer timed out after 10 s")
 
     subtask = filename.replace(".3mf", "")
-    msg = {
-        "print": {
-            "sequence_id": "0",
-            "command": "project_file",
-            "param": "Metadata/plate_1.gcode",
-            "subtask_name": subtask,
-            "url": f"ftp:///cache/{filename}",
-            # IDs required for a complete history record — printer shows
-            # "missing data" warning and needs manual confirm without them
-            "task_id": "0",
-            "subtask_id": "0",
-            "profile_id": "0",
-            "project_id": "0",
-            "timelapse": False,
-            "bed_leveling": True,
-            "flow_cali": False,
-            "vibration_cali": False,
-            "layer_inspect": False,
-            "use_ams": False,
-        }
+    use_ams = ams_slot >= 0
+    payload: dict = {
+        "sequence_id": "0",
+        "command": "project_file",
+        "param": "Metadata/plate_1.gcode",
+        "subtask_name": subtask,
+        "url": f"ftp:///cache/{filename}",
+        # IDs required for a complete history record — printer shows
+        # "missing data" warning and needs manual confirm without them
+        "task_id": "0",
+        "subtask_id": "0",
+        "profile_id": "0",
+        "project_id": "0",
+        "timelapse": False,
+        "bed_leveling": True,
+        "flow_cali": False,
+        "vibration_cali": False,
+        "layer_inspect": False,
+        "use_ams": use_ams,
     }
+    if use_ams:
+        # ams_mapping: one entry per print filament; value = global tray index.
+        # Single-material prints always use one filament → [ams_slot].
+        payload["ams_mapping"] = [ams_slot]
+    msg = {"print": payload}
     topic = f"device/{BAMBU_SERIAL}/request"
     result = client.publish(topic, json.dumps(msg), qos=0)
     result.wait_for_publish(timeout=5)
@@ -255,10 +265,10 @@ def _mqtt_print_trigger(filename: str) -> None:
 
 # ── Public async API ─────────────────────────────────────────────────────────
 
-async def send_and_print(path_3mf: str) -> dict:
+async def send_and_print(path_3mf: str, ams_slot: int = BAMBU_AMS_SLOT) -> dict:
     """
     Upload .3mf to printer /cache/ via FTPS, then trigger print via MQTT.
-    Returns {status, filename}.
+    Returns {status, filename, ams_slot}.
     """
     if not is_configured():
         raise RuntimeError(
@@ -266,5 +276,5 @@ async def send_and_print(path_3mf: str) -> dict:
         )
     loop = asyncio.get_running_loop()
     filename = await loop.run_in_executor(None, _ftp_upload, path_3mf)
-    await loop.run_in_executor(None, _mqtt_print_trigger, filename)
-    return {"status": "sent", "filename": filename}
+    await loop.run_in_executor(None, _mqtt_print_trigger, filename, ams_slot)
+    return {"status": "sent", "filename": filename, "ams_slot": ams_slot}
