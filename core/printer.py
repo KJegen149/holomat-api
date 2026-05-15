@@ -234,13 +234,14 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
     client.subscribe(report_topic, qos=0)
 
     subtask = filename.replace(".3mf", "")
+    seq_id = str(int(time.time() * 1000) % 100000)
     # Minimal payload — use_ams/ams_mapping in MQTT causes silent validation
     # failures on P1S firmware. AMS slot selection is handled by M620 in the
     # gcode itself (injected by slice_model). bed_leveling is honoured by the
     # printer firmware when the print is confirmed.
     msg = {
         "print": {
-            "sequence_id": str(int(time.time() * 1000) % 100000),
+            "sequence_id": seq_id,
             "command": "project_file",
             "param": "Metadata/plate_1.gcode",
             "subtask_name": subtask,
