@@ -231,6 +231,12 @@ def _mqtt_print_trigger(filename: str) -> None:
             "param": "Metadata/plate_1.gcode",
             "subtask_name": subtask,
             "url": f"ftp:///cache/{filename}",
+            # IDs required for a complete history record — printer shows
+            # "missing data" warning and needs manual confirm without them
+            "task_id": "0",
+            "subtask_id": "0",
+            "profile_id": "0",
+            "project_id": "0",
             "timelapse": False,
             "bed_leveling": True,
             "flow_cali": False,
