@@ -162,6 +162,12 @@ def _ftp_upload(path_3mf: str) -> str:
     ftp.connect(host=BAMBU_IP, port=BAMBU_FTP_PORT, timeout=30)
     ftp.login(user="bblp", passwd=BAMBU_ACCESS_CODE)
     ftp.prot_p()  # protect data channel
+    # /cache/ may not exist after an SD card reseat — create it if missing
+    try:
+        ftp.mkd("/cache")
+        log.info("FTP: created /cache/ directory")
+    except ftplib.error_perm:
+        pass  # already exists
     with open(path_3mf, "rb") as f:
         ftp.storbinary(f"STOR /cache/{filename}", f)
     ftp.quit()
