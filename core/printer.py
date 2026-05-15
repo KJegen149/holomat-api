@@ -8,6 +8,7 @@ import asyncio
 import ftplib
 import json
 import os
+import socket
 import ssl
 import time
 import uuid
@@ -22,8 +23,36 @@ BAMBU_IP          = os.getenv("BAMBU_IP", "")
 BAMBU_ACCESS_CODE = os.getenv("BAMBU_ACCESS_CODE", "")
 BAMBU_SERIAL      = os.getenv("BAMBU_SERIAL", "")
 BAMBU_CERT        = os.getenv("BAMBU_CERT", "certs/printer.pem")
-BAMBU_FTP_PORT    = int(os.getenv("BAMBU_FTP_PORT", "21"))
+BAMBU_FTP_PORT    = int(os.getenv("BAMBU_FTP_PORT", "990"))   # implicit FTPS
 BAMBU_MQTT_PORT   = int(os.getenv("BAMBU_MQTT_PORT", "8883"))
+
+
+class _ImplicitFTP_TLS(ftplib.FTP_TLS):
+    """FTP_TLS variant that wraps the control socket in TLS immediately (implicit FTPS).
+
+    Standard FTP_TLS uses explicit mode (AUTH TLS command after plain connect).
+    Bambu Lab printers speak implicit FTPS on port 990 — TLS from the first byte.
+    """
+
+    def connect(self, host: str = "", port: int = 0,
+                timeout: float = -999, source_address=None) -> str:
+        if host:
+            self.host = host
+        if port:
+            self.port = port
+        if timeout != -999:
+            self.timeout = timeout
+        if source_address is not None:
+            self.source_address = source_address
+        # Wrap socket in TLS before sending any FTP data
+        raw = socket.create_connection(
+            (self.host, self.port), self.timeout, self.source_address
+        )
+        self.sock = self.context.wrap_socket(raw, server_hostname=self.host)
+        self.af   = self.sock.family
+        self.file = self.sock.makefile("r", encoding=self.encoding)
+        self.welcome = self.getresp()
+        return self.welcome
 
 
 def is_configured() -> bool:
@@ -103,12 +132,15 @@ async def get_status() -> dict:
 # ── FTP upload ───────────────────────────────────────────────────────────────
 
 def _ftp_upload(path_3mf: str) -> str:
-    """Upload 3MF to printer /cache/ via FTPS. Returns filename on printer."""
+    """Upload 3MF to printer /cache/ via implicit FTPS (port 990). Returns filename on printer."""
     filename = Path(path_3mf).name
-    ftp = ftplib.FTP_TLS()
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    ftp = _ImplicitFTP_TLS(context=ctx)
     ftp.connect(host=BAMBU_IP, port=BAMBU_FTP_PORT, timeout=30)
     ftp.login(user="bblp", passwd=BAMBU_ACCESS_CODE)
-    ftp.prot_p()  # enable TLS data channel protection
+    ftp.prot_p()  # protect data channel
     with open(path_3mf, "rb") as f:
         ftp.storbinary(f"STOR /cache/{filename}", f)
     ftp.quit()
