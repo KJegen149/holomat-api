@@ -234,30 +234,25 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
     client.subscribe(report_topic, qos=0)
 
     subtask = filename.replace(".3mf", "")
-    use_ams = ams_slot >= 0
-    # sequence_id must be unique per session — a static "0" is deduplicated
-    # by the printer and silently ignored after the first message.
-    seq_id = str(int(time.time() * 1000) % 100000)
-    payload: dict = {
-        "sequence_id": seq_id,
-        "command": "project_file",
-        "param": "Metadata/plate_1.gcode",
-        "subtask_name": subtask,
-        "url": f"ftp:///cache/{filename}",
-        "task_id": "0",
-        "subtask_id": "0",
-        "profile_id": "0",
-        "project_id": "0",
-        "timelapse": False,
-        "bed_leveling": True,
-        "flow_cali": False,
-        "vibration_cali": False,
-        "layer_inspect": False,
-        "use_ams": use_ams,
+    # Minimal payload — use_ams/ams_mapping in MQTT causes silent validation
+    # failures on P1S firmware. AMS slot selection is handled by M620 in the
+    # gcode itself (injected by slice_model). bed_leveling is honoured by the
+    # printer firmware when the print is confirmed.
+    msg = {
+        "print": {
+            "sequence_id": str(int(time.time() * 1000) % 100000),
+            "command": "project_file",
+            "param": "Metadata/plate_1.gcode",
+            "subtask_name": subtask,
+            "url": f"ftp:///cache/{filename}",
+            "timelapse": False,
+            "bed_leveling": True,
+            "flow_cali": False,
+            "vibration_cali": False,
+            "layer_inspect": False,
+            "use_ams": False,
+        }
     }
-    if use_ams:
-        payload["ams_mapping"] = [ams_slot]
-    msg = {"print": payload}
     topic = f"device/{BAMBU_SERIAL}/request"
 
     received: list[str] = []
