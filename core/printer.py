@@ -144,13 +144,19 @@ def _cloud_send_and_print(path_3mf: str) -> dict:
     log.info("Cloud: uploading %s", path_3mf)
     upload = client.upload_file(file_path=path_3mf)
     filename = upload["filename"]
-    log.info("Cloud: upload OK → %s", filename)
-
-    # Brief pause for file to register in Bambu's cloud storage index
-    time.sleep(2)
+    # upload_url is the S3 pre-signed PUT URL — also usable as the file_url for
+    # start_print_job since it's valid for ~1 hour and Bambu's service fetches from it.
+    file_url = upload.get("upload_url") or upload.get("file_url")
+    log.info("Cloud: upload OK → %s  url=%s", filename, file_url)
 
     log.info("Cloud: dispatching print job to %s", BAMBU_SERIAL)
-    job = client.start_cloud_print(device_id=BAMBU_SERIAL, filename=filename)
+    # Use start_print_job directly — start_cloud_print searches the cloud file
+    # index which is not populated by upload_file's direct S3 PUT path.
+    job = client.start_print_job(
+        device_id=BAMBU_SERIAL,
+        file_name=filename,
+        file_url=file_url,
+    )
     log.info("Cloud: print dispatched — job_id=%s status=%s", job.get("job_id"), job.get("status"))
     return {"filename": filename, "job_id": job.get("job_id"), "cloud_status": job.get("status")}
 
