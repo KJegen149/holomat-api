@@ -9,7 +9,8 @@ aiofiles>=23.2.1
 httpx>=0.27.0
 
 # ── 3D printer ────────────────────────────────────────────────────────────
-bambulabs-api>=0.4.0
+bambulabs-api>=0.4.0        # LAN MQTT status polling
+bambu-lab-cloud-api>=1.0.5  # Cloud print dispatch (auto-start, no touchscreen)
 
 # ── Computer vision (Phase 1 — calibration, Phase 4 — scanning) ───────────
 opencv-python>=4.9.0

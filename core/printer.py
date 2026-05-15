@@ -1,8 +1,16 @@
 """
-Bambu Lab P1S wrapper — MQTT status polling and FTP+MQTT print job submission.
+Bambu Lab P1S — cloud-first print dispatch with LAN fallback.
 
-Status:   bambulabs-api (MQTT subscribe, receives push reports)
-Printing: ftplib (file upload to printer cache) + paho-mqtt (print trigger)
+Cloud mode (preferred, auto-starts print):
+  Auth:     bambu-lab-cloud-api  → Bambu cloud REST API
+  Upload:   POST to Bambu S3 via signed URL
+  Trigger:  POST /v1/iot-service/api/user/print  (auto-starts, no touchscreen)
+  Requires: BAMBU_EMAIL, BAMBU_PASSWORD, BAMBU_SERIAL
+
+LAN fallback (manual touchscreen confirmation required):
+  Upload:   ftplib implicit FTPS → printer /cache/ (port 990)
+  Trigger:  paho-mqtt project_file command (port 8883)
+  Requires: BAMBU_IP, BAMBU_ACCESS_CODE, BAMBU_SERIAL
 """
 import asyncio
 import ftplib
@@ -19,16 +27,135 @@ from core.logger import get_logger
 
 log = get_logger(__name__)
 
+# ── Shared env vars ───────────────────────────────────────────────────────────
+BAMBU_SERIAL      = os.getenv("BAMBU_SERIAL", "")
+
+# ── Cloud-mode credentials ────────────────────────────────────────────────────
+BAMBU_EMAIL       = os.getenv("BAMBU_EMAIL", "")
+BAMBU_PASSWORD    = os.getenv("BAMBU_PASSWORD", "")
+BAMBU_TOKEN_FILE  = os.getenv("BAMBU_TOKEN_FILE", "scan_data/.bambu_token")
+BAMBU_REGION      = os.getenv("BAMBU_REGION", "global")   # "global" or "china"
+
+# ── LAN-mode credentials (fallback) ──────────────────────────────────────────
 BAMBU_IP          = os.getenv("BAMBU_IP", "")
 BAMBU_ACCESS_CODE = os.getenv("BAMBU_ACCESS_CODE", "")
-BAMBU_SERIAL      = os.getenv("BAMBU_SERIAL", "")
 BAMBU_CERT        = os.getenv("BAMBU_CERT", "certs/printer.pem")
-BAMBU_FTP_PORT    = int(os.getenv("BAMBU_FTP_PORT", "990"))   # implicit FTPS
+BAMBU_FTP_PORT    = int(os.getenv("BAMBU_FTP_PORT", "990"))
 BAMBU_MQTT_PORT   = int(os.getenv("BAMBU_MQTT_PORT", "8883"))
-# AMS slot index (0 = first tray of first AMS unit, 1 = second tray, etc.)
-# Set to -1 to disable AMS and print from the external spool holder.
 BAMBU_AMS_SLOT    = int(os.getenv("BAMBU_AMS_SLOT", "0"))
 
+
+def is_cloud_configured() -> bool:
+    return bool(BAMBU_EMAIL and BAMBU_PASSWORD and BAMBU_SERIAL)
+
+
+def is_lan_configured() -> bool:
+    return bool(BAMBU_IP and BAMBU_ACCESS_CODE and BAMBU_SERIAL)
+
+
+def is_configured() -> bool:
+    return is_cloud_configured() or is_lan_configured()
+
+
+# ── Status (LAN MQTT) ─────────────────────────────────────────────────────────
+
+async def get_status() -> dict:
+    """
+    Connect to printer via LAN MQTT, wait for a status push, return state dict.
+    Returns {state, nozzle_temp, bed_temp, progress, current_file}.
+    Requires LAN credentials (BAMBU_IP, BAMBU_ACCESS_CODE, BAMBU_SERIAL).
+    """
+    try:
+        import bambulabs_api as bl  # type: ignore
+    except ImportError:
+        return {"error": "bambulabs-api not installed"}
+
+    if not is_lan_configured():
+        return {"error": "Bambu LAN credentials not configured (BAMBU_IP, BAMBU_ACCESS_CODE, BAMBU_SERIAL)"}
+
+    loop = asyncio.get_running_loop()
+
+    def _poll() -> dict:
+        printer = bl.Printer(
+            ip_address=BAMBU_IP,
+            access_code=BAMBU_ACCESS_CODE,
+            serial=BAMBU_SERIAL,
+        )
+        try:
+            printer.connect()
+
+            for _ in range(16):
+                if printer.mqtt_client_ready:
+                    break
+                time.sleep(0.5)
+
+            for _ in range(20):
+                state_raw = str(printer.get_current_state())
+                nozzle = printer.get_nozzle_temperature()
+                if "UNKNOWN" not in state_raw.upper() and nozzle != 0.0:
+                    break
+                time.sleep(0.5)
+
+            state = str(printer.get_current_state())
+            if "." in state:
+                state = state.split(".")[-1]
+
+            current_file: Optional[str] = None
+            if hasattr(printer, "get_gcode_file"):
+                try:
+                    current_file = printer.get_gcode_file()
+                except Exception:
+                    pass
+
+            return {
+                "state": state,
+                "nozzle_temp": printer.get_nozzle_temperature(),
+                "bed_temp": printer.get_bed_temperature(),
+                "progress": printer.get_percentage(),
+                "current_file": current_file,
+            }
+        finally:
+            try:
+                printer.disconnect()
+            except Exception:
+                pass
+
+    try:
+        return await loop.run_in_executor(None, _poll)
+    except Exception as e:
+        log.error("Printer status error: %s", e)
+        return {"error": str(e)}
+
+
+# ── Cloud upload + print trigger ──────────────────────────────────────────────
+
+def _get_bambu_client():
+    """Authenticate with Bambu cloud and return a BambuClient."""
+    from bambulab import BambuAuthenticator, BambuClient  # type: ignore
+    Path(BAMBU_TOKEN_FILE).parent.mkdir(parents=True, exist_ok=True)
+    auth = BambuAuthenticator(region=BAMBU_REGION, token_file=BAMBU_TOKEN_FILE)
+    token = auth.get_or_create_token(username=BAMBU_EMAIL, password=BAMBU_PASSWORD)
+    return BambuClient(token=token)
+
+
+def _cloud_send_and_print(path_3mf: str) -> dict:
+    """Upload 3MF to Bambu cloud S3 and dispatch print job. Auto-starts on printer."""
+    client = _get_bambu_client()
+    log.info("Cloud: uploading %s", path_3mf)
+    upload = client.upload_file(file_path=path_3mf)
+    filename = upload["filename"]
+    log.info("Cloud: upload OK → %s", filename)
+
+    # Brief pause for file to register in Bambu's cloud storage index
+    time.sleep(2)
+
+    log.info("Cloud: dispatching print job to %s", BAMBU_SERIAL)
+    job = client.start_cloud_print(device_id=BAMBU_SERIAL, filename=filename)
+    log.info("Cloud: print dispatched — job_id=%s status=%s", job.get("job_id"), job.get("status"))
+    return {"filename": filename, "job_id": job.get("job_id"), "cloud_status": job.get("status")}
+
+
+# ── LAN FTP upload ────────────────────────────────────────────────────────────
 
 class _ImplicitFTP_TLS(ftplib.FTP_TLS):
     """FTP_TLS variant that wraps the control socket in TLS immediately (implicit FTPS).
@@ -47,7 +174,6 @@ class _ImplicitFTP_TLS(ftplib.FTP_TLS):
             self.timeout = timeout
         if source_address is not None:
             self.source_address = source_address
-        # Wrap socket in TLS before sending any FTP data
         raw = socket.create_connection(
             (self.host, self.port), self.timeout, self.source_address
         )
@@ -79,82 +205,6 @@ class _ImplicitFTP_TLS(ftplib.FTP_TLS):
         return self.voidresp()
 
 
-def is_configured() -> bool:
-    return bool(BAMBU_IP and BAMBU_ACCESS_CODE and BAMBU_SERIAL)
-
-
-async def get_status() -> dict:
-    """
-    Connect to printer via MQTT, wait for a status push, return state dict.
-    Returns {state, nozzle_temp, bed_temp, progress, current_file}.
-    """
-    try:
-        import bambulabs_api as bl  # type: ignore
-    except ImportError:
-        return {"error": "bambulabs-api not installed"}
-
-    if not is_configured():
-        return {"error": "Bambu credentials not configured"}
-
-    loop = asyncio.get_running_loop()
-
-    def _poll() -> dict:
-        printer = bl.Printer(
-            ip_address=BAMBU_IP,
-            access_code=BAMBU_ACCESS_CODE,
-            serial=BAMBU_SERIAL,
-        )
-        try:
-            printer.connect()
-
-            # Wait for MQTT connection
-            for _ in range(16):
-                if printer.mqtt_client_ready:
-                    break
-                time.sleep(0.5)
-
-            # Wait for printer to send its first status report (separate from MQTT connect)
-            for _ in range(20):
-                state_raw = str(printer.get_current_state())
-                nozzle = printer.get_nozzle_temperature()
-                if "UNKNOWN" not in state_raw.upper() and nozzle != 0.0:
-                    break
-                time.sleep(0.5)
-
-            state = str(printer.get_current_state())
-            # Strip enum prefix e.g. "GcodeState.IDLE" → "IDLE"
-            if "." in state:
-                state = state.split(".")[-1]
-
-            current_file: Optional[str] = None
-            if hasattr(printer, "get_gcode_file"):
-                try:
-                    current_file = printer.get_gcode_file()
-                except Exception:
-                    pass
-
-            return {
-                "state": state,
-                "nozzle_temp": printer.get_nozzle_temperature(),
-                "bed_temp": printer.get_bed_temperature(),
-                "progress": printer.get_percentage(),
-                "current_file": current_file,
-            }
-        finally:
-            try:
-                printer.disconnect()
-            except Exception:
-                pass
-
-    try:
-        return await loop.run_in_executor(None, _poll)
-    except Exception as e:
-        log.error("Printer status error: %s", e)
-        return {"error": str(e)}
-
-
-# ── FTP upload ───────────────────────────────────────────────────────────────
-
 def _ftp_upload(path_3mf: str) -> str:
     """Upload 3MF to printer /cache/ via implicit FTPS (port 990). Returns filename on printer."""
     filename = Path(path_3mf).name
@@ -164,13 +214,12 @@ def _ftp_upload(path_3mf: str) -> str:
     ftp = _ImplicitFTP_TLS(context=ctx)
     ftp.connect(host=BAMBU_IP, port=BAMBU_FTP_PORT, timeout=30)
     ftp.login(user="bblp", passwd=BAMBU_ACCESS_CODE)
-    ftp.prot_p()  # protect data channel
-    # /cache/ may not exist after an SD card reseat — create it if missing
+    ftp.prot_p()
     try:
         ftp.mkd("/cache")
         log.info("FTP: created /cache/ directory")
     except ftplib.error_perm:
-        pass  # already exists
+        pass
     with open(path_3mf, "rb") as f:
         ftp.storbinary(f"STOR /cache/{filename}", f)
     ftp.quit()
@@ -178,13 +227,10 @@ def _ftp_upload(path_3mf: str) -> str:
     return filename
 
 
-# ── MQTT print trigger ────────────────────────────────────────────────────────
+# ── LAN MQTT print trigger ────────────────────────────────────────────────────
 
 def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
-    """Send project_file command over MQTT to trigger the print job.
-
-    ams_slot: AMS tray index (0-based globally). -1 = external spool, no AMS.
-    """
+    """Send project_file command over MQTT to trigger the print job (requires touchscreen confirmation)."""
     try:
         import paho.mqtt.client as mqtt  # type: ignore
     except ImportError:
@@ -194,11 +240,9 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
 
     def _on_connect(client, userdata, flags, *args):
         nonlocal connected
-        # args[0] is rc (int, paho v1) or ReasonCode (paho v2)
         rc = args[0] if args else 0
         connected = (rc == 0 if isinstance(rc, int) else rc.value == 0)
 
-    # Build client — support both paho-mqtt v1 and v2
     try:
         client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,  # type: ignore[attr-defined]
@@ -229,16 +273,11 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
         client.loop_stop()
         raise RuntimeError("MQTT connect to printer timed out after 10 s")
 
-    # Subscribe to report topic so we can log the printer's ack/rejection
     report_topic = f"device/{BAMBU_SERIAL}/report"
     client.subscribe(report_topic, qos=0)
 
     subtask = filename.replace(".3mf", "")
     seq_id = str(int(time.time() * 1000) % 100000)
-    # Minimal payload — use_ams/ams_mapping in MQTT causes silent validation
-    # failures on P1S firmware. AMS slot selection is handled by M620 in the
-    # gcode itself (injected by slice_model). bed_leveling is honoured by the
-    # printer firmware when the print is confirmed.
     msg = {
         "print": {
             "sequence_id": seq_id,
@@ -261,7 +300,6 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
     def _on_message(client, userdata, message):
         try:
             data = json.loads(message.payload)
-            # Only log the print-command response, not periodic status pushes
             if "print" in data and "command" in data.get("print", {}):
                 received.append(json.dumps(data["print"]))
         except Exception:
@@ -269,9 +307,7 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
 
     client.on_message = _on_message
 
-    result = client.publish(topic, json.dumps(msg), qos=0)
-    # QoS 0: no PUBACK — sleep briefly to flush the send buffer before
-    # loop_stop()/disconnect() so the message isn't dropped mid-flight.
+    client.publish(topic, json.dumps(msg), qos=0)
     time.sleep(1)
     client.loop_stop()
     client.disconnect()
@@ -280,21 +316,39 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
     if received:
         log.info("Printer ack: %s", received[0])
     else:
-        log.info("No ack received from printer within 2 s")
+        log.info("No ack received from printer within 1 s")
 
 
-# ── Public async API ─────────────────────────────────────────────────────────
+def _lan_send_and_print(path_3mf: str, ams_slot: int = BAMBU_AMS_SLOT) -> dict:
+    """LAN fallback: FTP upload + MQTT trigger. Requires touchscreen confirmation."""
+    filename = _ftp_upload(path_3mf)
+    _mqtt_print_trigger(filename, ams_slot=ams_slot)
+    return {"filename": filename, "ams_slot": ams_slot}
+
+
+# ── Public async API ──────────────────────────────────────────────────────────
 
 async def send_and_print(path_3mf: str, ams_slot: int = BAMBU_AMS_SLOT) -> dict:
     """
-    Upload .3mf to printer /cache/ via FTPS, then trigger print via MQTT.
-    Returns {status, filename, ams_slot}.
+    Upload .3mf and trigger print.
+
+    Prefers cloud mode (BAMBU_EMAIL + BAMBU_PASSWORD) which auto-starts the print.
+    Falls back to LAN mode (BAMBU_IP + BAMBU_ACCESS_CODE) which requires touchscreen confirmation.
+    Returns {status, filename, mode, ...}.
     """
     if not is_configured():
         raise RuntimeError(
-            "Bambu printer not configured — set BAMBU_IP, BAMBU_ACCESS_CODE, BAMBU_SERIAL"
+            "Bambu printer not configured — set BAMBU_EMAIL+BAMBU_PASSWORD+BAMBU_SERIAL "
+            "for cloud mode, or BAMBU_IP+BAMBU_ACCESS_CODE+BAMBU_SERIAL for LAN mode"
         )
+
     loop = asyncio.get_running_loop()
-    filename = await loop.run_in_executor(None, _ftp_upload, path_3mf)
-    await loop.run_in_executor(None, _mqtt_print_trigger, filename, ams_slot)
-    return {"status": "sent", "filename": filename, "ams_slot": ams_slot}
+
+    if is_cloud_configured():
+        log.info("Using cloud mode for print dispatch (auto-start, no confirmation required)")
+        result = await loop.run_in_executor(None, _cloud_send_and_print, path_3mf)
+        return {"status": "sent", "mode": "cloud", **result}
+
+    log.info("Using LAN mode for print dispatch (touchscreen confirmation required)")
+    result = await loop.run_in_executor(None, _lan_send_and_print, path_3mf, ams_slot)
+    return {"status": "sent", "mode": "lan", **result}
