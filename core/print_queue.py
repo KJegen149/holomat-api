@@ -181,12 +181,14 @@ class PrintQueue:
                     f"OrcaSlicer not found at {__import__('os').getenv('ORCA_CLI', '/usr/bin/orca-slicer')!r} — "
                     "install OrcaSlicer and set ORCA_CLI env var"
                 )
+            import os as _os
             three_mf_path = await slice_model(
                 input_path=job["stl_path"],
                 quality=job["profile_id"] if profile.get("is_builtin") else "standard",
                 infill=profile["infill_percent"],
                 supports=profile["supports"],
                 output_dir=str(THREE_MF_DIR),
+                ams_slot=int(_os.getenv("BAMBU_AMS_SLOT", "0")),
             )
         except Exception as e:
             log.error("Slice failed: %s", e)

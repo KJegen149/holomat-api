@@ -372,15 +372,19 @@ async def slice_model(
     infill: int = 15,
     supports: str = "tree",
     output_dir: str = "/tmp",
+    ams_slot: int = int(os.getenv("BAMBU_AMS_SLOT", "0")),
 ) -> str:
     """
     Slice input_path (binary STL) with OrcaSlicer, return path to output .3mf.
 
-    Approach: plain 3MF (inline geometry, no BambuStudio:3mfVersion marker).
-    OrcaSlicer uses whatever preset is active in ~/.config/OrcaSlicer/, which
-    must be set up by running the GUI once and selecting "Bambu Lab P1S 0.4
-    nozzle".  BBL P1S profiles are patched on disk (idempotent) to satisfy
-    the settings validator (use_relative_e_distances=0, G92 E0 in layer_gcode).
+    ams_slot: AMS tray index (0-based). Set to -1 to disable AMS (external spool).
+    When >= 0, prepends ``M620 S{slot}A`` to machine_start_gcode so the AMS
+    loads the correct filament even when the print is started manually.
+
+    Approach: plain 3MF (inline geometry, no BambuStudio:3mfVersion marker),
+    --load-settings machine;process + --load-filaments filament.
+    BBL P1S profiles are patched on disk (idempotent) to satisfy the settings
+    validator (use_relative_e_distances=0, G92 E0 in layer_gcode).
 
     Set ORCA_APPIMAGE to use the AppImage directly (preferred for headless).
     Set ORCA_DISPLAY to override $DISPLAY (e.g. ":99" for Xvfb).
@@ -536,6 +540,14 @@ async def slice_model(
         "compatible_printers_condition": "",
         "filament_settings_id": ["holomat_pla"],
     }
+
+    # AMS: prepend M620 slot-selection to the inherited P1S start gcode so the
+    # AMS loads the right filament even on a manual start-from-history.
+    # Without this, the printer heats up and extrudes into air.
+    if ams_slot >= 0:
+        base_start = machine.get("machine_start_gcode", "")
+        machine_for_cli["machine_start_gcode"] = f"M620 S{ams_slot}A\n" + base_start
+        log.info("AMS slot %d: prepended M620 S%dA to machine_start_gcode", ams_slot, ams_slot)
 
     # Deterministic paths so failed runs leave a debuggable footprint.
     mach_settings_path = "/tmp/orca_holomat_machine.json"

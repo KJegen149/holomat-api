@@ -109,6 +109,7 @@ async def main() -> None:
             infill=15,
             supports="tree",
             output_dir="/tmp",
+            ams_slot=AMS_SLOT,
         )
         size_bytes = Path(three_mf_path).stat().st_size
         print(f"OK  Sliced → {three_mf_path}  ({size_bytes:,} bytes)")
