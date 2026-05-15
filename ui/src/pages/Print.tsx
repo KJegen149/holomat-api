@@ -77,12 +77,12 @@ function JobRow({ job, onCancel }: { job: PrintJob; onCancel: (id: string) => vo
             ['Created', new Date(job.created_at).toLocaleString()],
             job.started_at    ? ['Started', new Date(job.started_at).toLocaleString()]    : null,
             job.completed_at  ? ['Completed', new Date(job.completed_at).toLocaleString()] : null,
-          ].filter(Boolean).map(([k, v]) => (
-            <div key={k as string} className="flex gap-2 font-mono text-[9px]">
+          ].filter(Boolean).map((row) => { const [k, v] = row as [string, string]; return (
+            <div key={k} className="flex gap-2 font-mono text-[9px]">
               <span className="text-j-cdim w-20 flex-shrink-0">{k}</span>
-              <span className="text-j-muted break-all">{v as string}</span>
+              <span className="text-j-muted break-all">{v}</span>
             </div>
-          ))}
+          ); })}
           {job.error && (
             <div className="mt-1 text-j-red font-mono text-[9px] break-all">{job.error}</div>
           )}

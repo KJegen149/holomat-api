@@ -13,9 +13,7 @@ export default function HomeAssistant({ health }: Props) {
 
   const haUrl = health?.services.ha_url ?? ''
 
-  // Append kiosk=true so the HA sidebar/header is hidden inside the embed.
-  // Requires the kiosk-mode HACS integration (or HA's built-in ?kiosk param).
-  const embedUrl = haUrl ? `${haUrl}?kiosk=true` : ''
+  const embedUrl = haUrl
 
   useEffect(() => {
     setLoading(true)
