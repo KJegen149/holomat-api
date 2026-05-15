@@ -140,24 +140,82 @@ def _get_bambu_client():
 
 def _cloud_send_and_print(path_3mf: str) -> dict:
     """Upload 3MF to Bambu cloud S3 and dispatch print job. Auto-starts on printer."""
+    import requests as _requests
     client = _get_bambu_client()
-    log.info("Cloud: uploading %s", path_3mf)
-    upload = client.upload_file(file_path=path_3mf)
-    filename = upload["filename"]
-    # upload_url is the S3 pre-signed PUT URL — also usable as the file_url for
-    # start_print_job since it's valid for ~1 hour and Bambu's service fetches from it.
-    file_url = upload.get("upload_url") or upload.get("file_url")
-    log.info("Cloud: upload OK → %s  url=%s", filename, file_url)
+    filename = Path(path_3mf).name
 
+    # Step 1: get signed upload URL and capture the full response (includes ticket/model_id)
+    file_size = Path(path_3mf).stat().st_size
+    log.info("Cloud: requesting upload URL for %s (%d bytes)", filename, file_size)
+    upload_info = client.get_upload_url(filename=filename, size=file_size)
+    log.info("Cloud: upload_info = %s", upload_info)
+
+    # Extract upload URL from whichever format the API returned
+    upload_url: str = ""
+    urls_array = upload_info.get("urls", [])
+    if urls_array:
+        for entry in urls_array:
+            if isinstance(entry, dict) and entry.get("type") == "filename":
+                upload_url = entry["url"]
+                break
+        if not upload_url and urls_array:
+            first = urls_array[0]
+            upload_url = first["url"] if isinstance(first, dict) else first
+    if not upload_url:
+        upload_url = upload_info.get("upload_url", "")
+
+    if not upload_url:
+        raise RuntimeError(f"No upload URL in Bambu response: {upload_info}")
+
+    # Step 2: PUT file directly to S3 (empty headers — signed URL breaks with extras)
+    log.info("Cloud: uploading to S3 → %s", upload_url[:80] + "…")
+    with open(path_3mf, "rb") as f:
+        resp = _requests.put(upload_url, data=f, headers={}, timeout=120)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"S3 upload failed ({resp.status_code}): {resp.text[:200]}")
+    log.info("Cloud: S3 upload OK (HTTP %d)", resp.status_code)
+
+    # Also upload size file if provided
+    for entry in urls_array:
+        if isinstance(entry, dict) and entry.get("type") == "size":
+            try:
+                _requests.put(entry["url"], data=str(file_size).encode(),
+                              headers={"Content-Type": "text/plain"}, timeout=10)
+            except Exception:
+                pass
+
+    # Step 3: derive the permanent (unsigned) S3 URL for the print command
+    # Strip query string — the base S3 object URL is what Bambu's backend uses
+    permanent_url = upload_url.split("?")[0]
+
+    # Capture any ticket/model_id from the upload_info for create_task path
+    upload_ticket = upload_info.get("upload_ticket") or upload_info.get("ticket")
+    model_id = upload_info.get("model_id") or upload_info.get("modelId") or upload_ticket
+
+    log.info("Cloud: permanent_url=%s  model_id=%s", permanent_url, model_id)
+
+    # Step 4: dispatch print — try create_task first (correct cloud path), fall back
     log.info("Cloud: dispatching print job to %s", BAMBU_SERIAL)
-    # Use start_print_job directly — start_cloud_print searches the cloud file
-    # index which is not populated by upload_file's direct S3 PUT path.
+    if model_id:
+        try:
+            job = client.create_task(
+                model_id=str(model_id),
+                title=filename.replace(".3mf", ""),
+                device_id=BAMBU_SERIAL,
+                plate_index=1,
+            )
+            log.info("Cloud: task created — %s", job)
+            return {"filename": filename, "job_id": job.get("id") or job.get("taskId"), "cloud_status": "queued"}
+        except Exception as e:
+            log.warning("Cloud: create_task failed (%s), falling back to start_print_job", e)
+
+    # Fallback: start_print_job with permanent URL
     job = client.start_print_job(
         device_id=BAMBU_SERIAL,
         file_name=filename,
-        file_url=file_url,
+        file_url=permanent_url,
     )
-    log.info("Cloud: print dispatched — job_id=%s status=%s", job.get("job_id"), job.get("status"))
+    log.info("Cloud: print dispatched — %s", job)
     return {"filename": filename, "job_id": job.get("job_id"), "cloud_status": job.get("status")}
 
 
