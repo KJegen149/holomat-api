@@ -54,6 +54,27 @@ class _ImplicitFTP_TLS(ftplib.FTP_TLS):
         self.welcome = self.getresp()
         return self.welcome
 
+    def storbinary(self, cmd, fp, blocksize=8192, callback=None, rest=None):
+        # Identical to FTP_TLS.storbinary except the data-channel TLS shutdown
+        # uses a 2 s timeout — Bambu's FTP server never sends close_notify, so
+        # the default unwrap() blocks until the socket timeout (30 s) expires.
+        self.voidcmd("TYPE I")
+        with self.transfercmd(cmd, rest) as conn:
+            while True:
+                buf = fp.read(blocksize)
+                if not buf:
+                    break
+                conn.sendall(buf)
+                if callback:
+                    callback(buf)
+            if isinstance(conn, ssl.SSLSocket):
+                conn.settimeout(2)
+                try:
+                    conn.unwrap()
+                except (TimeoutError, OSError, ssl.SSLError):
+                    pass
+        return self.voidresp()
+
 
 def is_configured() -> bool:
     return bool(BAMBU_IP and BAMBU_ACCESS_CODE and BAMBU_SERIAL)
