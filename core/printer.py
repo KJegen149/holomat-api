@@ -349,7 +349,8 @@ def _ftp_upload(path_3mf: str) -> str:
 
 # ── LAN MQTT print trigger ────────────────────────────────────────────────────
 
-def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
+def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT,
+                        user_id: str = "") -> None:
     """Send project_file command over LAN MQTT to trigger the print job."""
     try:
         import paho.mqtt.client as mqtt  # type: ignore
@@ -400,31 +401,33 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
     seq_id = str(int(time.time() * 1000) % 100000)
 
     # P1S expects file:///sdcard/cache/ — not ftp:// — to reference the uploaded file.
-    # Missing fields (file, md5, project_id, etc.) cause silent no-op despite result:success.
+    # user_id must match the Bambu account linked to the printer; without it the
+    # printer accepts the command (result:success) then immediately aborts the job.
     use_ams = ams_slot >= 0 and BAMBU_AMS_SLOT >= 0
-    msg = {
-        "print": {
-            "sequence_id": seq_id,
-            "command": "project_file",
-            "param": "Metadata/plate_1.gcode",
-            "subtask_name": subtask,
-            "url": f"file:///sdcard/cache/{filename}",
-            "file": filename,
-            "md5": "",
-            "project_id": "0",
-            "profile_id": "0",
-            "task_id": "0",
-            "subtask_id": "0",
-            "bed_type": "auto",
-            "timelapse": False,
-            "bed_leveling": True,
-            "flow_cali": True,
-            "vibration_cali": True,
-            "layer_inspect": True,
-            "use_ams": use_ams,
-            "ams_mapping": [ams_slot] if use_ams else [],
-        }
+    inner: dict = {
+        "sequence_id": seq_id,
+        "command": "project_file",
+        "param": "Metadata/plate_1.gcode",
+        "subtask_name": subtask,
+        "url": f"file:///sdcard/cache/{filename}",
+        "file": filename,
+        "md5": "",
+        "project_id": "0",
+        "profile_id": "0",
+        "task_id": "0",
+        "subtask_id": "0",
+        "bed_type": "auto",
+        "timelapse": False,
+        "bed_leveling": True,
+        "flow_cali": True,
+        "vibration_cali": True,
+        "layer_inspect": True,
+        "use_ams": use_ams,
+        "ams_mapping": [ams_slot] if use_ams else [],
     }
+    if user_id:
+        inner["user_id"] = user_id
+    msg = {"print": inner}
     topic = f"device/{BAMBU_SERIAL}/request"
 
     received: list[str] = []
@@ -451,11 +454,32 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
         log.info("No ack received from printer within 2 s")
 
 
+def _get_user_id() -> str:
+    """Fetch the Bambu account user_id via cloud auth. Returns empty string on failure."""
+    if not is_cloud_configured():
+        return ""
+    try:
+        client = _get_bambu_client()
+        user_info = client.get_user_info()
+        uid = str(user_info.get("uid") or user_info.get("userId")
+                  or user_info.get("user_id", ""))
+        if uid:
+            log.info("Cloud auth: user_id=%s", uid)
+        return uid
+    except Exception as e:
+        log.warning("Could not fetch user_id from cloud auth: %s", e)
+        return ""
+
+
 def _lan_send_and_print(path_3mf: str, ams_slot: int = BAMBU_AMS_SLOT) -> dict:
-    """LAN mode: FTP upload + MQTT trigger."""
+    """LAN mode: FTP upload + MQTT trigger with cloud-authenticated user_id."""
+    uid = _get_user_id()
+    if not uid:
+        log.warning("No user_id available — printer may abort job immediately. "
+                    "Set BAMBU_EMAIL + BAMBU_PASSWORD to authenticate.")
     filename = _ftp_upload(path_3mf)
-    _mqtt_print_trigger(filename, ams_slot=ams_slot)
-    return {"filename": filename, "ams_slot": ams_slot}
+    _mqtt_print_trigger(filename, ams_slot=ams_slot, user_id=uid)
+    return {"filename": filename, "ams_slot": ams_slot, "user_id": uid}
 
 
 # ── Public async API ──────────────────────────────────────────────────────────
