@@ -68,6 +68,15 @@ All performance estimates (compile times, timeout values, memory budgets) should
 - `.env` loaded automatically at startup via `python-dotenv`. `BAMBU_ACCESS_CODE` changes each time printer switches between cloud/LAN mode.
 - Print queue worker: `core/print_queue.py` — job lifecycle: queued → slicing → uploading → printing → done/failed/cancelled. Persists to `scan_data/print_queue.json`.
 
+## Phase 7 — PENDING: final end-to-end test (revisit after Phase 9)
+*Phase 7 code is complete and merged to master. Full pipeline was confirmed working mid-session (AUTO-STARTED ✓) but final CLI test at close of session did not print. Revisit after Phase 9 Settings UI is live so credentials are properly persisted.*
+
+Likely causes to investigate on return:
+- `BAMBU_ACCESS_CODE` may have rotated — verify current code on printer (Settings → Network)
+- `.env` does not exist on the laptop yet — created only in dev environment. Either create it manually or let Phase 9 Settings write it.
+- Bambu cloud auth (`_get_user_id`) may require MFA/OTP — check if `BAMBU_EMAIL`+`BAMBU_PASSWORD` alone is sufficient or if token cache needs priming first (run `scripts/test_bambu_print.py` and watch for auth errors in output)
+- The systemd override `override.conf` may have stale `BAMBU_ACCESS_CODE` — check with `sudo systemctl cat holomat-api`
+
 ## Phase 9 implementation notes (Settings UI) — planned scope
 *Confirmed in Phase 7 chat — implement in Phase 9 chat.*
 - Backend: `GET /api/settings` + `POST /api/settings` — reads/writes `.env` file directly.
