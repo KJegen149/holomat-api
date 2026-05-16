@@ -350,7 +350,7 @@ def _ftp_upload(path_3mf: str) -> str:
 # ── LAN MQTT print trigger ────────────────────────────────────────────────────
 
 def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
-    """Send project_file command over MQTT to trigger the print job (requires touchscreen confirmation)."""
+    """Send project_file command over LAN MQTT to trigger the print job."""
     try:
         import paho.mqtt.client as mqtt  # type: ignore
     except ImportError:
@@ -398,19 +398,31 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
 
     subtask = filename.replace(".3mf", "")
     seq_id = str(int(time.time() * 1000) % 100000)
+
+    # P1S expects file:///sdcard/cache/ — not ftp:// — to reference the uploaded file.
+    # Missing fields (file, md5, project_id, etc.) cause silent no-op despite result:success.
+    use_ams = ams_slot >= 0 and BAMBU_AMS_SLOT >= 0
     msg = {
         "print": {
             "sequence_id": seq_id,
             "command": "project_file",
             "param": "Metadata/plate_1.gcode",
             "subtask_name": subtask,
-            "url": f"ftp:///cache/{filename}",
+            "url": f"file:///sdcard/cache/{filename}",
+            "file": filename,
+            "md5": "",
+            "project_id": "0",
+            "profile_id": "0",
+            "task_id": "0",
+            "subtask_id": "0",
+            "bed_type": "auto",
             "timelapse": False,
             "bed_leveling": True,
-            "flow_cali": False,
-            "vibration_cali": False,
-            "layer_inspect": False,
-            "use_ams": False,
+            "flow_cali": True,
+            "vibration_cali": True,
+            "layer_inspect": True,
+            "use_ams": use_ams,
+            "ams_mapping": [ams_slot] if use_ams else [],
         }
     }
     topic = f"device/{BAMBU_SERIAL}/request"
@@ -428,7 +440,7 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
     client.on_message = _on_message
 
     client.publish(topic, json.dumps(msg), qos=0)
-    time.sleep(1)
+    time.sleep(2)
     client.loop_stop()
     client.disconnect()
 
@@ -436,11 +448,11 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT) -> None:
     if received:
         log.info("Printer ack: %s", received[0])
     else:
-        log.info("No ack received from printer within 1 s")
+        log.info("No ack received from printer within 2 s")
 
 
 def _lan_send_and_print(path_3mf: str, ams_slot: int = BAMBU_AMS_SLOT) -> dict:
-    """LAN fallback: FTP upload + MQTT trigger. Requires touchscreen confirmation."""
+    """LAN mode: FTP upload + MQTT trigger."""
     filename = _ftp_upload(path_3mf)
     _mqtt_print_trigger(filename, ams_slot=ams_slot)
     return {"filename": filename, "ams_slot": ams_slot}
