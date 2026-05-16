@@ -1,5 +1,5 @@
 [Unit]
-Description=Holomat API Server (JARVIS Holomat v0.3.0)
+Description=Holomat API Server (JARVIS)
 After=network-online.target smbd.service
 Wants=network-online.target
 
@@ -12,36 +12,27 @@ ExecStart=/home/jarvis/holomat-api/venv/bin/uvicorn main:app --host 0.0.0.0 --po
 Restart=on-failure
 RestartSec=5
 
-# ── Bambu P1S printer ──────────────────────────────────────────────────────
-Environment=BAMBU_IP=10.11.12.91
-Environment=BAMBU_ACCESS_CODE=14620600
-Environment=BAMBU_SERIAL=01p00c5c0701414
-Environment=BAMBU_CERT=/home/jarvis/holomat-api/certs/printer.pem
-
-# ── Cloudflare edge layer ──────────────────────────────────────────────────
-Environment=CF_API_URL=https://jarvis-api.kjeg.workers.dev
-# Set CF_API_KEY after install:
-#   sudo systemctl edit holomat-api
-#   Add under [Service]: Environment=CF_API_KEY=your_key_here
-Environment=CF_API_KEY=
-
-# ── Local tool paths ───────────────────────────────────────────────────────
+# ── Non-sensitive config ───────────────────────────────────────────────────
 Environment=ORCA_CLI=/usr/bin/orca-slicer
 Environment=OPENSCAD_BIN=openscad
-
-# ── Camera (Phase 1+) ──────────────────────────────────────────────────────
 Environment=CAMERA_DEVICE=0
-
-# ── Home Assistant (Phase 3) ──────────────────────────────────────────────
+Environment=CF_API_URL=https://jarvis-api.kjeg.workers.dev
 Environment=HA_URL=https://ha.nannerserver.com
-Environment=HA_MQTT_HOST=                       # REQUIRED — set to your Mosquitto broker IP
 Environment=HA_MQTT_PORT=1883
 Environment=HA_MQTT_USER=Jarvis_Holomat
-Environment=HA_MQTT_PASS=                       # REQUIRED — set to Jarvis_Holomat password
+Environment=BAMBU_SERIAL=01P00C5C0701414
+Environment=BAMBU_IP=10.11.12.91
+Environment=BAMBU_REGION=global
 
-# ── Object ID — GPT-4o Vision (Phase 4) ───────────────────────────────────
-# Set after install: sudo systemctl edit holomat-api
-Environment=OPENAI_API_KEY=
+# ── Secrets: do NOT add here — use systemd override instead ───────────────
+# Run:  sudo systemctl edit holomat-api
+# Then add under [Service]:
+#   Environment=BAMBU_ACCESS_CODE=your_code
+#   Environment=BAMBU_EMAIL=your@email.com
+#   Environment=BAMBU_PASSWORD=your_password
+#   Environment=GEMINI_API_KEY=your_key
+#   Environment=CF_API_KEY=your_key
+#   Environment=HA_MQTT_PASS=your_password
 
 [Install]
 WantedBy=multi-user.target
