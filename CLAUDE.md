@@ -3,7 +3,7 @@
 ## Project overview
 Holomat is a smart mat system with a JARVIS-themed React UI.
 The backend is a FastAPI server (`main.py`) with phase-gated feature development.
-Current live phase: **Phase 5 — OpenSCAD → STL Compilation**.
+Current live phase: **Phase 7 — Print Queue (Bambu P1S)**.
 
 ## Hardware topology — IMPORTANT
 **There is no Raspberry Pi running the Holomat application.** Do not assume ARM/Pi hardware.
@@ -24,9 +24,9 @@ All performance estimates (compile times, timeout values, memory budgets) should
 - Phase 4F: OpenSCAD case generation (Gemini text) ✅
 - Phase 5: OpenSCAD → STL compilation ✅
 - Phase 6: SMB gallery watcher / HEIC conversion
-- Phase 7: Print queue (Bambu P1S)
+- Phase 7: Print queue (Bambu P1S) ✅
 - Phase 8: Wyoming voice bridge
-- Phase 9+: TBD
+- Phase 9: Settings UI (see notes below)
 
 ## AI provider — IMPORTANT
 **All AI inference uses Google Gemini, not OpenAI.**
@@ -55,6 +55,28 @@ All performance estimates (compile times, timeout values, memory budgets) should
 - `OPENSCAD_DISPLAY` env var overrides `$DISPLAY` if the server runs as a headless systemd service.
 - `slice_model()` stub moved to Phase 7 marker (was incorrectly marked Phase 5).
 - New routes: `POST /api/generate/openscad`, `GET /api/generate/stl/{filename}`, `POST /api/generate/compile-case`.
+
+## Phase 7 implementation notes (Bambu P1S print queue)
+- Printer runs firmware **01.08.02**, **LAN-only mode**, **Developer Mode ON**.
+- Print dispatch: FTPS upload (port 990, implicit TLS) → LAN MQTT `project_file` command (port 8883).
+- Critical URL format: `file:///sdcard/cache/{filename}` — NOT `ftp:///cache/`. The `ftp://` scheme is X1C-only; P1S silently no-ops with `result:success` but never starts.
+- `user_id` is mandatory in the MQTT payload. Without it the printer accepts the command then immediately aborts (shows "incoming 3MF" then "Finished" with no physical action). Fetched via `_get_user_id()` which authenticates with Bambu cloud using `BAMBU_EMAIL` + `BAMBU_PASSWORD`.
+- Panda Touch (BTT): WiFi-only device, USB is charging only. Has NO HTTP control API — all non-root HTTP responses are ESP32 catch-all 500s. Useful as a touchscreen upgrade only.
+- Cloud MQTT path preserved in `_cloud_send_and_print()` but not the active path — printer is in LAN-only mode.
+- LAN archive: `core/printer_lan.py` is a full copy of the working LAN implementation before cloud additions (rollback reference).
+- ACS signing: `core/bambu_signing.py` — RSA-SHA256 with community-extracted Bambu Connect key. Required for cloud MQTT path only; LAN MQTT does not need signing.
+- `.env` loaded automatically at startup via `python-dotenv`. `BAMBU_ACCESS_CODE` changes each time printer switches between cloud/LAN mode.
+- Print queue worker: `core/print_queue.py` — job lifecycle: queued → slicing → uploading → printing → done/failed/cancelled. Persists to `scan_data/print_queue.json`.
+
+## Phase 9 implementation notes (Settings UI) — planned scope
+*Confirmed in Phase 7 chat — implement in Phase 9 chat.*
+- Backend: `GET /api/settings` + `POST /api/settings` — reads/writes `.env` file directly.
+- UI: grouped credential forms — Printer, Gemini, Home Assistant, Cloudflare, Hardware.
+- Sensitive fields (passwords, API keys): render as password inputs, show `••••••` if already set, only overwrite if user types a new value.
+- Show "restart required" banner after credential changes (backend needs restart to re-read env).
+- Slicer profile editor already exists in Print tab — skip in Settings.
+- ChArUco geometry overrides and system diagnostics/log export are lower priority — add if time permits.
+- Stub already exists at `ui/src/pages/Settings.tsx` (currently a `PhaseStub` component).
 
 ## Known open issues (post Phase 4 review)
 - `scan_data/library.json` has no write lock — concurrent requests can race. Add a `threading.Lock` before Phase 5 adds more write paths.
