@@ -264,7 +264,7 @@ class PrintQueue:
 
     def start(self) -> None:
         self._load()
-        self._worker_task = asyncio.get_event_loop().create_task(self._worker())
+        self._worker_task = asyncio.get_running_loop().create_task(self._worker())
         log.info("Print queue ready (%d jobs loaded)", len(self._jobs))
 
     def stop(self) -> None:
