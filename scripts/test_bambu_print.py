@@ -1,51 +1,35 @@
 #!/usr/bin/env python3
 """
-Option A proof-of-concept: slice a 1 cm cube, upload to Bambu P1S via FTP,
-and trigger the print via MQTT.
+End-to-end print test: slice a 1 cm cube and send it to the Bambu P1S.
 
-Usage (on KJLC-AI-01):
-  BAMBU_IP=10.11.12.91 \
-  BAMBU_ACCESS_CODE=14620600 \
-  BAMBU_SERIAL=01P00C5C0701414 \
-  ORCA_DISPLAY=:99 \
-  python3 scripts/test_bambu_print.py
+Reads all credentials from .env (or environment). No hardcoded values.
 
-Environment variables (all have defaults matching the lab printer):
-  BAMBU_IP           Printer LAN IP          (default: 10.11.12.91)
-  BAMBU_ACCESS_CODE  8-digit access code     (default: 14620600)
-  BAMBU_SERIAL       Printer serial number   (default: 01P00C5C0701414)
-  ORCA_CLI           orca-slicer binary path (default: /usr/bin/orca-slicer)
-  ORCA_DISPLAY       DISPLAY used by slicer  (default: :99)
-  DRY_RUN=1          Slice only, skip FTP+MQTT
+Usage:
+  python3 scripts/test_bambu_print.py [--dry-run]
+
+  --dry-run   Slice only; skip FTP upload and MQTT trigger.
+
+Requires: BAMBU_IP, BAMBU_ACCESS_CODE, BAMBU_SERIAL, BAMBU_EMAIL, BAMBU_PASSWORD
 """
+import argparse
 import asyncio
-import math
 import os
 import struct
 import sys
 import tempfile
 from pathlib import Path
 
-# Allow running from repo root or scripts/
+# Load .env before importing core modules
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-# ── Defaults for lab printer ───────────────────────────────────────────────────
-os.environ.setdefault("BAMBU_IP",          "10.11.12.91")
-os.environ.setdefault("BAMBU_ACCESS_CODE", "14620600")
-os.environ.setdefault("BAMBU_SERIAL",      "01P00C5C0701414")
-os.environ.setdefault("ORCA_CLI",          "/usr/bin/orca-slicer")
-
-DRY_RUN  = os.getenv("DRY_RUN", "").strip() not in ("", "0", "false", "no")
-# AMS slot: 0 = first tray of first AMS, 1 = second tray, etc. -1 = no AMS.
-AMS_SLOT = int(os.getenv("BAMBU_AMS_SLOT", "0"))
-
-from core.slicer import orca_available, slice_model  # noqa: E402
-from core.printer import _ftp_upload, _mqtt_print_trigger
-import logging  # noqa: E402
+import logging
 logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 
+from core.slicer import orca_available, slice_model
+from core.printer import is_lan_configured, send_and_print
 
-# ── Minimal 1 cm cube STL ──────────────────────────────────────────────────────
 
 _CUBE_FACES = [
     ((0, 0, -1), (0, 0, 0), (1, 0, 0), (0, 1, 0)),
@@ -64,7 +48,7 @@ _CUBE_FACES = [
 
 
 def _make_cube_stl() -> str:
-    fd, path = tempfile.mkstemp(suffix=".stl", prefix="bambu_test_cube_")
+    fd, path = tempfile.mkstemp(suffix=".stl", prefix="holomat_test_")
     with os.fdopen(fd, "wb") as f:
         f.write(b"\x00" * 80)
         f.write(struct.pack("<I", len(_CUBE_FACES)))
@@ -73,71 +57,62 @@ def _make_cube_stl() -> str:
                 f.write(struct.pack("<f", float(c)))
             for vtx in (v1, v2, v3):
                 for c in vtx:
-                    f.write(struct.pack("<f", float(c) * 10.0))  # 10 mm cube
+                    f.write(struct.pack("<f", float(c) * 10.0))
             f.write(b"\x00\x00")
     return path
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
-
 async def main() -> None:
-    print("=== Bambu P1S end-to-end test ===\n")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true", help="Slice only, skip dispatch")
+    args = parser.parse_args()
 
-    bambu_ip     = os.environ["BAMBU_IP"]
-    access_code  = os.environ["BAMBU_ACCESS_CODE"]
-    serial       = os.environ["BAMBU_SERIAL"]
+    print("=== Holomat — Bambu P1S end-to-end test ===\n")
 
-    ams_desc = f"slot {AMS_SLOT}" if AMS_SLOT >= 0 else "disabled (external spool)"
-    print(f"Printer : {bambu_ip}  serial={serial}  access={access_code}")
-    print(f"AMS     : {ams_desc}")
-    print(f"Dry-run : {DRY_RUN}\n")
+    if not is_lan_configured():
+        print("FAIL: LAN credentials not set.")
+        print("  Ensure BAMBU_IP, BAMBU_ACCESS_CODE, BAMBU_SERIAL are in .env")
+        sys.exit(1)
 
-    # 1. Check slicer
     if not orca_available():
         print(f"FAIL: OrcaSlicer not found at {os.getenv('ORCA_CLI', '/usr/bin/orca-slicer')!r}")
         sys.exit(1)
-    print("OK  OrcaSlicer found")
 
-    # 2. Generate test STL
+    ams_slot = int(os.getenv("BAMBU_AMS_SLOT", "0"))
+    print(f"Printer : {os.getenv('BAMBU_IP')}  serial={os.getenv('BAMBU_SERIAL')}")
+    print(f"AMS slot: {ams_slot}")
+    print(f"Dry-run : {args.dry_run}\n")
+
     stl_path = _make_cube_stl()
-    print(f"OK  Cube STL created: {stl_path}")
+    print(f"OK  Test cube STL: {stl_path}")
 
     try:
-        # 3. Slice
-        print("\n--- Slicing (standard quality, 15% infill, tree supports) ---")
-        three_mf_path = await slice_model(
+        print("\n--- Slicing ---")
+        three_mf = await slice_model(
             input_path=stl_path,
             quality="standard",
             infill=15,
-            supports="tree",
+            supports="none",
             output_dir="/tmp",
-            ams_slot=AMS_SLOT,
+            ams_slot=ams_slot,
         )
-        size_bytes = Path(three_mf_path).stat().st_size
-        print(f"OK  Sliced → {three_mf_path}  ({size_bytes:,} bytes)")
+        print(f"OK  {three_mf}  ({Path(three_mf).stat().st_size:,} bytes)")
 
-        if DRY_RUN:
-            print("\nDRY RUN — skipping FTP upload and MQTT trigger.")
-            print("SUCCESS (dry run)")
+        if args.dry_run:
+            print("\nDRY RUN — skipping dispatch.")
             return
 
-        # 4. FTP upload
-        print("\n--- Uploading via FTP ---")
-        remote_filename = _ftp_upload(three_mf_path)
-        print(f"OK  Uploaded → /cache/{remote_filename}")
-
-        # 5. MQTT print trigger
-        ams_desc = f"AMS slot {AMS_SLOT}" if AMS_SLOT >= 0 else "external spool"
-        print(f"\n--- Triggering print via MQTT ({ams_desc}) ---")
-        _mqtt_print_trigger(remote_filename, ams_slot=AMS_SLOT)
-        print(f"OK  Print triggered: {remote_filename}")
-
-        print("\nSUCCESS — cube sent to printer.")
-        print("Check the Bambu Handy app or printer touchscreen to confirm.")
+        print("\n--- Uploading and triggering print ---")
+        result = await send_and_print(three_mf, ams_slot=ams_slot)
+        print(f"OK  Dispatched: {result}")
+        print("\nSUCCESS — watch the printer start automatically.")
 
     finally:
-        if os.path.exists(stl_path):
-            os.unlink(stl_path)
+        for p in [stl_path]:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
 
 
 asyncio.run(main())

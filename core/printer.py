@@ -1,16 +1,16 @@
 """
-Bambu Lab P1S — cloud-first print dispatch with LAN fallback.
+Bambu Lab P1S — LAN-mode print dispatch with cloud auth for user_id.
 
-Cloud mode (preferred, auto-starts print):
-  Auth:     bambu-lab-cloud-api  → Bambu cloud REST API
-  Upload:   POST to Bambu S3 via signed URL
-  Trigger:  POST /v1/iot-service/api/user/print  (auto-starts, no touchscreen)
+Active path (LAN-only mode, Developer Mode ON, firmware 01.08.02):
+  Auth:     BAMBU_EMAIL + BAMBU_PASSWORD → Bambu cloud → fetch user_id only
+  Upload:   implicit FTPS port 990 → printer /cache/
+  Trigger:  LAN MQTT project_file command (port 8883, file:///sdcard/cache/ URL)
+  Auto-starts without touchscreen confirmation.
+  Requires: BAMBU_IP, BAMBU_ACCESS_CODE, BAMBU_SERIAL, BAMBU_EMAIL, BAMBU_PASSWORD
+
+Cloud path (preserved, not active — printer is in LAN-only mode):
   Requires: BAMBU_EMAIL, BAMBU_PASSWORD, BAMBU_SERIAL
-
-LAN fallback (manual touchscreen confirmation required):
-  Upload:   ftplib implicit FTPS → printer /cache/ (port 990)
-  Trigger:  paho-mqtt project_file command (port 8883)
-  Requires: BAMBU_IP, BAMBU_ACCESS_CODE, BAMBU_SERIAL
+  See _cloud_send_and_print() and core/bambu_signing.py.
 """
 import asyncio
 import ftplib
