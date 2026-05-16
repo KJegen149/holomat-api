@@ -383,3 +383,53 @@ export async function createPrintProfile(body: {
 export async function deletePrintProfile(profileId: string): Promise<{ deleted: string }> {
   return _checkPrint(await fetch(`/api/print/profiles/${profileId}`, { method: 'DELETE' }))
 }
+
+// ── Voice Bridge API (Phase 8) ───────────────────────────────────────────────
+
+export interface VoiceStatus {
+  running: boolean
+  state: 'idle' | 'listening' | 'thinking' | 'speaking'
+  stt_url: string
+  tts_url: string
+  llm_url: string
+  stt_port: number
+  tts_port: number
+  wake_sensitivity: number
+  ha_integration: boolean
+  history_turns: number
+  conversation_id: string | null
+}
+
+export interface VoiceTurn {
+  user: string
+  jarvis: string
+}
+
+export interface VoiceHistory {
+  turns: VoiceTurn[]
+  conversation_id: string | null
+}
+
+async function _checkVoice<T>(r: Response): Promise<T> {
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({})) as { detail?: string; error?: string }
+    throw new Error(body.detail ?? body.error ?? `HTTP ${r.status}`)
+  }
+  return r.json()
+}
+
+export async function fetchVoiceStatus(): Promise<VoiceStatus> {
+  return _checkVoice(await fetch('/api/voice/status'))
+}
+
+export async function fetchVoiceHistory(): Promise<VoiceHistory> {
+  return _checkVoice(await fetch('/api/voice/history'))
+}
+
+export async function triggerVoice(): Promise<{ triggered: boolean; state: string }> {
+  return _checkVoice(await fetch('/api/voice/trigger', { method: 'POST' }))
+}
+
+export async function clearVoiceHistory(): Promise<{ cleared: boolean }> {
+  return _checkVoice(await fetch('/api/voice/history', { method: 'DELETE' }))
+}

@@ -33,3 +33,8 @@ paho-mqtt>=2.0.0
 
 # ── AI / Vision (Phase 4 — object identification via Gemini) ──────────────
 google-generativeai>=0.8.0
+
+# ── Voice bridge (Phase 8) ────────────────────────────────────────────────
+wyoming>=1.5.0              # Wyoming protocol — STT/TTS TCP servers for HA integration
+openwakeword>=0.6.0         # Wake word detection (ONNX runtime on x86_64, no TFLite needed)
+sounddevice>=0.4.6          # Audio I/O — microphone capture and speaker playback

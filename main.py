@@ -1,5 +1,5 @@
 """
-Holomat API  v0.7.0
+Holomat API  v0.8.0
 JARVIS Holomat — smart fabrication surface
 Runs on KJLC-AI-01 (10.11.12.129), port 8100
 
@@ -11,8 +11,8 @@ Phase structure:
   Phase 4  — object scanning pipeline
   Phase 5  — OpenSCAD → STL compilation
   Phase 6  — gallery / SMB watcher
-  Phase 7  — print queue (Bambu P1S) ← current
-  Phase 8  — voice bridge / HA satellite
+  Phase 7  — print queue (Bambu P1S)
+  Phase 8  — voice bridge / HA satellite ← current
   Phase 9+ — settings, polish, batch scan
 """
 from contextlib import asynccontextmanager
@@ -36,6 +36,7 @@ from api.routes.print import router as print_router
 from api.routes.gallery import router as gallery_router
 from api.routes.generate import router as generate_router
 from api.routes.ha import router as ha_router
+from api.routes.voice import router as voice_router
 
 setup_logging()
 log = get_logger(__name__)
@@ -49,7 +50,7 @@ UI_PLACEHOLDER = BASE_DIR / "ui" / "index.html"  # Phase 0-1: boot placeholder
 async def lifespan(app: FastAPI):
     # Wire logger → WebSocket so all log lines stream to the Console app
     set_broadcast(ws_manager.broadcast)
-    log.info("━━━ Holomat v0.7.0 starting — Phase 7 ━━━")
+    log.info("━━━ Holomat v0.8.0 starting — Phase 8 ━━━")
 
     # HA MQTT bridge (Phase 3)
     try:
@@ -80,9 +81,10 @@ async def lifespan(app: FastAPI):
     # Voice bridge (Phase 8)
     try:
         from core.voice_bridge import voice_bridge
+        voice_bridge.set_broadcast(ws_manager.broadcast)
         voice_bridge.start()
     except NotImplementedError:
-        log.info("Voice bridge pending (Phase 8)")
+        log.info("Voice bridge pending (Phase 8) — set WYOMING_ENABLED=true to activate")
     except Exception as e:
         log.warning("Voice bridge failed to start: %s", e)
 
@@ -114,7 +116,7 @@ async def lifespan(app: FastAPI):
 # ── App ────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Holomat API",
-    version="0.7.0",
+    version="0.8.0",
     description="JARVIS Holomat — smart fabrication surface",
     lifespan=lifespan,
     docs_url="/api/docs",
@@ -138,6 +140,7 @@ app.include_router(print_router,       prefix="/api/print")
 app.include_router(gallery_router,     prefix="/api/gallery")
 app.include_router(generate_router,    prefix="/api/generate")
 app.include_router(ha_router,          prefix="/api/ha")
+app.include_router(voice_router,       prefix="/api/voice")
 
 
 # ── Static UI serving ──────────────────────────────────────────────────────

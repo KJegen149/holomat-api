@@ -3,7 +3,7 @@
 ## Project overview
 Holomat is a smart mat system with a JARVIS-themed React UI.
 The backend is a FastAPI server (`main.py`) with phase-gated feature development.
-Current live phase: **Phase 7 — Print Queue (Bambu P1S)**.
+Current live phase: **Phase 8 — Wyoming Voice Bridge**.
 
 ## Hardware topology — IMPORTANT
 **There is no Raspberry Pi running the Holomat application.** Do not assume ARM/Pi hardware.
@@ -25,7 +25,7 @@ All performance estimates (compile times, timeout values, memory budgets) should
 - Phase 5: OpenSCAD → STL compilation ✅
 - Phase 6: SMB gallery watcher / HEIC conversion
 - Phase 7: Print queue (Bambu P1S) ✅
-- Phase 8: Wyoming voice bridge
+- Phase 8: Wyoming voice bridge ✅
 - Phase 9: Settings UI (see notes below)
 
 ## AI provider — IMPORTANT
@@ -86,6 +86,50 @@ Likely causes to investigate on return:
 - Slicer profile editor already exists in Print tab — skip in Settings.
 - ChArUco geometry overrides and system diagnostics/log export are lower priority — add if time permits.
 - Stub already exists at `ui/src/pages/Settings.tsx` (currently a `PhaseStub` component).
+
+## Phase 8 implementation notes (Wyoming voice bridge)
+
+### Architecture
+- **Wyoming STT server** on `:10300` — asyncio TCP server, shares uvicorn event loop via `create_task`.
+- **Wyoming TTS server** on `:10200` — same pattern.
+- **Standalone voice loop** — daemon thread using `openWakeWord` (ONNX, x86_64 native) + `sounddevice`.
+- Wyoming protocol: JSONL-framed events over raw TCP. HA connects TO our server (we listen, HA dials in).
+- `wyoming-satellite` package is **archived/deprecated** — DO NOT use. Use `wyoming` core library directly.
+
+### Cloudflare workers (existing, confirmed)
+- STT: `POST https://wyoming-stt.kjeg.workers.dev` — audio/wav body → `{text, provider}` JSON
+- TTS: `POST https://wyoming-tts.kjeg.workers.dev` — `{text}` JSON body → WAV audio (24 kHz, 16-bit, mono, Deepgram Aura-2 Theia voice)
+- LLM: `POST https://wyoming-llm.kjeg.workers.dev` — `{text, history, device_list, conversation_id}` → `{text, conversation_id, model}` where `text` is JARVIS JSON `{speech, service}`
+
+### Wake word
+- Model: `hey_jarvis` from openWakeWord built-in models (auto-downloaded on first start).
+- `inference_framework="onnx"` — runs on x86_64 without TFLite; ONNX runtime included in openwakeword.
+- Chunk size: **1,280 samples = 80 ms at 16 kHz** — required by openWakeWord.
+
+### HA integration
+- Add **Wyoming Protocol** integration in HA (Settings → Devices & Services → Add → Wyoming Protocol).
+- Point it at `KJLC-AI-01_IP:10300` for STT and `KJLC-AI-01_IP:10200` for TTS.
+- Discovery: manual (no Zeroconf implemented — add `wyoming[zeroconf]` if auto-discovery is desired).
+- For device control via JARVIS voice: set `HA_TOKEN` to a HA long-lived access token.
+
+### Key env vars (all optional; WYOMING_ENABLED=true required to activate)
+- `WYOMING_ENABLED=true` — activate voice bridge
+- `WYOMING_STT_PORT=10300` — Wyoming STT port
+- `WYOMING_TTS_PORT=10200` — Wyoming TTS port
+- `WYOMING_MIC_INDEX` / `WYOMING_SPEAKER_INDEX` — sounddevice device indices
+- `WYOMING_WAKE_SENSITIVITY=0.5` — openWakeWord threshold
+- `HA_TOKEN` — HA long-lived access token (for `GET /api/states` and `POST /api/services/*`)
+
+### API routes
+- `GET  /api/voice/status` — bridge status, state, config
+- `GET  /api/voice/history` — conversation turns (user + JARVIS speech)
+- `POST /api/voice/trigger` — manual trigger (equivalent to saying "Hey Jarvis")
+- `DELETE /api/voice/history` — clear conversation history
+
+### System dependency
+- `sounddevice` requires PortAudio: `sudo apt install libportaudio2`
+- Mic/speaker must be available on KJLC-AI-01 (gaming laptop has built-in audio)
+- Systemd service may need `--user` audio access or `audio` group membership
 
 ## Known open issues (post Phase 4 review)
 - `scan_data/library.json` has no write lock — concurrent requests can race. Add a `threading.Lock` before Phase 5 adds more write paths.
