@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Crosshair, Scan, Printer, Image, Settings, Home } from 'lucide-react'
+import { LayoutDashboard, Crosshair, Scan, Printer, Image, Settings, Home, Mic } from 'lucide-react'
 import Console from './Console'
 import StatusPill, { type PillState } from './StatusPill'
 import type { LogEntry } from '../hooks/useWebSocket'
@@ -21,6 +21,7 @@ const NAV: NavItem[] = [
   { path: '/scanner',         icon: Scan,            label: 'SCANNER',        end: false, phase: '4' },
   { path: '/print',           icon: Printer,         label: 'PRINT',          end: false, phase: '7' },
   { path: '/gallery',         icon: Image,           label: 'GALLERY',        end: false, phase: '6' },
+  { path: '/voice',           icon: Mic,             label: 'VOICE',          end: false, phase: '8' },
   { path: '/settings',        icon: Settings,        label: 'SETTINGS',       end: false, phase: '9' },
 ]
 
@@ -101,7 +102,7 @@ export default function Layout({ children, logs, health, healthError }: Props) {
       {/* Bottom bar */}
       <footer className="flex items-center gap-4 px-6 py-2 border-t border-j-border bg-j-surf flex-shrink-0
                          font-mono text-[10px] text-j-muted tracking-[0.1em]">
-        <span className="text-j-cdim">HOLOMAT v0.7.0 // PHASE 7 — PRINT QUEUE</span>
+        <span className="text-j-cdim">HOLOMAT v0.8.0 // PHASE 8 — VOICE BRIDGE</span>
         <div className="flex-1" />
         <span className="text-j-cdim">{`http://${window.location.host}`}</span>
       </footer>

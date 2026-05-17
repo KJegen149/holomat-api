@@ -33,3 +33,11 @@ paho-mqtt>=2.0.0
 
 # ── AI / Vision (Phase 4 — object identification via Gemini) ──────────────
 google-generativeai>=0.8.0
+
+# ── Voice bridge (Phase 8) ────────────────────────────────────────────────
+wyoming>=1.5.0              # Wyoming protocol — STT/TTS TCP servers for HA integration
+onnxruntime>=1.17.0         # ONNX inference runtime for openWakeWord (x86_64 native)
+sounddevice>=0.4.6          # Audio I/O — microphone capture and speaker playback
+# NOTE: openwakeword must be installed separately due to tflite-runtime incompatibility
+#       with Python 3.12+. Run AFTER pip install -r requirements.txt:
+#         venv/bin/pip install openwakeword --no-deps
