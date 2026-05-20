@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Settings as SettingsIcon, Save, Loader2, RotateCcw, CheckCircle } from 'lucide-react'
-import { fetchSettings, saveSettings } from '../api/client'
+import { Settings as SettingsIcon, Save, Loader2, RotateCcw, CheckCircle, Power, Zap, Circle } from 'lucide-react'
+import { fetchSettings, saveSettings, restartService, testConnections, fetchHealth, type ConnectionTestResult } from '../api/client'
 
 // ── Field & section definitions ─────────────────────────────────────────────
 
@@ -86,6 +86,11 @@ const SECTIONS: SectionDef[] = [
       { key: 'WYOMING_TTS_URL',          label: 'TTS Worker URL',        type: 'text', placeholder: 'https://wyoming-tts.kjeg.workers.dev' },
       { key: 'WYOMING_LLM_URL',          label: 'LLM Worker URL',        type: 'text', placeholder: 'https://wyoming-llm.kjeg.workers.dev' },
     ],
+  },
+  {
+    id: 'administration',
+    label: 'Administration',
+    fields: [],
   },
 ]
 
@@ -243,6 +248,176 @@ function SectionPanel({ section, serverValues, formValues, onChange, onSave, sav
   )
 }
 
+// ── AdminPanel component ─────────────────────────────────────────────────────
+
+type RestartState = 'idle' | 'restarting' | 'online' | 'timeout'
+
+function AdminPanel() {
+  const [restartState, setRestartState] = useState<RestartState>('idle')
+  const [testing, setTesting]           = useState(false)
+  const [testResults, setTestResults]   = useState<Record<string, ConnectionTestResult> | null>(null)
+  const [testError, setTestError]       = useState<string | null>(null)
+
+  const handleRestart = async () => {
+    setRestartState('restarting')
+    try {
+      await restartService()
+    } catch { /* server may die before responding — that's expected */ }
+
+    // Wait for RestartSec=5 + startup time
+    await new Promise(r => setTimeout(r, 6500))
+
+    const deadline = Date.now() + 20000
+    while (Date.now() < deadline) {
+      try {
+        await fetchHealth()
+        setRestartState('online')
+        setTimeout(() => setRestartState('idle'), 5000)
+        return
+      } catch { /* still starting */ }
+      await new Promise(r => setTimeout(r, 1500))
+    }
+    setRestartState('timeout')
+  }
+
+  const handleTest = async () => {
+    setTesting(true)
+    setTestResults(null)
+    setTestError(null)
+    try {
+      const res = await testConnections()
+      setTestResults(res.results)
+    } catch (e) {
+      setTestError(e instanceof Error ? e.message : 'Test failed')
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  const TEST_LABELS: Record<string, string> = {
+    gemini:     'Gemini AI',
+    cloudflare: 'Cloudflare Worker',
+    ha_token:   'HA Long-Lived Token',
+    ha_mqtt:    'HA MQTT Broker',
+    bambu_lan:  'Bambu Printer LAN',
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Service Control */}
+      <div className="border border-j-border rounded-sm overflow-hidden">
+        <div className="px-5 py-3 bg-j-surf border-b border-j-border">
+          <span className="font-mono text-[11px] text-j-cyan tracking-[0.15em] uppercase">
+            Service Control
+          </span>
+        </div>
+        <div className="px-5 py-4 bg-j-bg space-y-3">
+          <p className="font-mono text-[10px] text-j-muted leading-relaxed">
+            Restart the Holomat service to apply saved credential changes.
+            The UI will reconnect automatically (~6–10 s).
+          </p>
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              disabled={restartState === 'restarting'}
+              onClick={handleRestart}
+              className={`flex items-center gap-2 px-4 py-2 rounded-sm border
+                font-mono text-[10px] tracking-[0.1em] uppercase transition-colors
+                ${restartState === 'restarting'
+                  ? 'border-j-border text-j-muted cursor-not-allowed'
+                  : restartState === 'online'
+                  ? 'border-j-green text-j-green cursor-pointer'
+                  : restartState === 'timeout'
+                  ? 'border-j-amber text-j-amber cursor-pointer'
+                  : 'border-j-err/60 text-j-err hover:bg-j-err/10 cursor-pointer'
+                }`}
+            >
+              {restartState === 'restarting'
+                ? <Loader2 size={12} className="animate-spin" />
+                : restartState === 'online'
+                ? <CheckCircle size={12} />
+                : <Power size={12} />
+              }
+              {restartState === 'restarting' ? 'Restarting…'
+                : restartState === 'online'    ? 'Back Online'
+                : restartState === 'timeout'   ? 'Timed Out'
+                : 'Restart Service'}
+            </button>
+            {restartState === 'restarting' && (
+              <span className="font-mono text-[10px] text-j-muted animate-pulse">
+                Waiting for service to come back…
+              </span>
+            )}
+            {restartState === 'timeout' && (
+              <span className="font-mono text-[10px] text-j-amber">
+                Check: sudo journalctl -u holomat-api -n 50
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Connection Tests */}
+      <div className="border border-j-border rounded-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 bg-j-surf border-b border-j-border">
+          <span className="font-mono text-[11px] text-j-cyan tracking-[0.15em] uppercase">
+            Test Connections
+          </span>
+          <button
+            type="button"
+            disabled={testing}
+            onClick={handleTest}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-sm border
+              font-mono text-[10px] tracking-[0.1em] uppercase transition-colors
+              ${testing
+                ? 'border-j-border text-j-muted cursor-not-allowed'
+                : 'border-j-cyan text-j-cyan hover:bg-j-cyan/10 cursor-pointer'
+              }`}
+          >
+            {testing ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
+            {testing ? 'Testing…' : 'Run Tests'}
+          </button>
+        </div>
+        <div className="px-5 py-4 bg-j-bg">
+          {testError && (
+            <p className="font-mono text-[11px] text-j-err mb-3">{testError}</p>
+          )}
+          {!testResults && !testing && (
+            <p className="font-mono text-[10px] text-j-cdim">
+              Validates saved credentials and network reachability for each service.
+            </p>
+          )}
+          {testResults && (
+            <div className="space-y-2">
+              {Object.entries(testResults).map(([key, result]) => (
+                <div key={key} className="flex items-start gap-3">
+                  <Circle
+                    size={8}
+                    className={`flex-shrink-0 mt-0.5 fill-current ${result.ok ? 'text-j-green' : 'text-j-err'}`}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono text-[10px] text-j-text tracking-[0.05em] w-36 flex-shrink-0">
+                        {TEST_LABELS[key] ?? key}
+                      </span>
+                      <span className={`font-mono text-[10px] ${result.ok ? 'text-j-green' : 'text-j-err'}`}>
+                        {result.ok ? 'OK' : 'FAIL'}
+                      </span>
+                    </div>
+                    <p className="font-mono text-[9px] text-j-cdim mt-0.5 break-all">
+                      {result.detail}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Settings page ───────────────────────────────────────────────────────
 
 export default function Settings() {
@@ -359,17 +534,19 @@ export default function Settings() {
         </nav>
 
         {restartRequired && (
-          <div className="m-4 p-3 border border-j-amber/40 rounded-sm bg-j-amber/5">
+          <button
+            type="button"
+            onClick={() => setActiveSection('administration')}
+            className="m-4 p-3 border border-j-amber/40 rounded-sm bg-j-amber/5 text-left w-[calc(100%-2rem)] cursor-pointer hover:bg-j-amber/10 transition-colors"
+          >
             <div className="flex items-start gap-2">
               <RotateCcw size={11} className="text-j-amber flex-shrink-0 mt-0.5" />
               <p className="text-j-amber font-mono text-[9px] leading-relaxed tracking-[0.05em]">
                 Restart required.<br />
-                <span className="text-j-cdim font-mono text-[9px] break-all">
-                  sudo systemctl restart holomat-api
-                </span>
+                <span className="text-j-cdim">Click to go to Administration →</span>
               </p>
             </div>
-          </div>
+          </button>
         )}
       </div>
 
@@ -381,15 +558,18 @@ export default function Settings() {
           </div>
         )}
 
-        <SectionPanel
-          section={currentSection}
-          serverValues={serverValues}
-          formValues={formValues}
-          onChange={handleChange}
-          onSave={handleSave}
-          saving={saving}
-          savedSection={savedSection}
-        />
+        {activeSection === 'administration'
+          ? <AdminPanel />
+          : <SectionPanel
+              section={currentSection}
+              serverValues={serverValues}
+              formValues={formValues}
+              onChange={handleChange}
+              onSave={handleSave}
+              saving={saving}
+              savedSection={savedSection}
+            />
+        }
       </div>
     </div>
   )
