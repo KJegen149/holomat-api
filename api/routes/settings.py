@@ -238,7 +238,46 @@ async def test_connections():
     }
 
 
-# ── GET /api/settings/test/bambu ─────────────────────────────────────────────
+@router.get("/test/meshy")
+async def test_meshy():
+    """
+    Probe the Meshy API via the Cloudflare worker.
+    Uses a dummy task-id: 404 from Meshy = key valid; 401/403 = key rejected.
+    """
+    env = _read_env()
+    cf_url = _resolve("CF_API_URL", env).rstrip("/")
+    cf_key = _resolve("CF_API_KEY", env)
+
+    if not cf_url:
+        return {"ok": False, "detail": "CF_API_URL not set"}
+    if not cf_key:
+        return {"ok": False, "detail": "CF_API_KEY not set — cannot authenticate with Meshy"}
+
+    probe_url = f"{cf_url}/meshy/holomat-probe-connection"
+    try:
+        loop = asyncio.get_running_loop()
+        def _do():
+            req = urllib_req.Request(
+                probe_url,
+                headers={"Authorization": f"Bearer {cf_key}"},
+            )
+            try:
+                with urllib_req.urlopen(req, timeout=10) as r:
+                    return r.status, ""
+            except urllib_err.HTTPError as e:
+                body = e.read(512).decode(errors="replace")
+                return e.code, body
+        status, body = await loop.run_in_executor(None, _do)
+        if status == 404:
+            return {"ok": True, "detail": "Meshy API reachable — worker forwarded request (task not found, key valid)"}
+        if status in (401, 403):
+            return {"ok": False, "detail": f"HTTP {status} — CF_API_KEY rejected by worker or Meshy"}
+        return {"ok": status < 500, "detail": f"HTTP {status}"}
+    except Exception as e:
+        return {"ok": False, "detail": str(e)}
+
+
+
 
 @router.get("/test/bambu")
 async def test_bambu_dry_run():

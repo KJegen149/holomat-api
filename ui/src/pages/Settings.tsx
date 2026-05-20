@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Settings as SettingsIcon, Save, Loader2, RotateCcw, CheckCircle, Power, Zap, Circle } from 'lucide-react'
-import { fetchSettings, saveSettings, restartService, testConnections, bambuDryRun, bambuCloudAuth, fetchHealth, type ConnectionTestResult } from '../api/client'
+import { fetchSettings, saveSettings, restartService, testConnections, bambuDryRun, bambuCloudAuth, meshyTest, fetchHealth, type ConnectionTestResult } from '../api/client'
 
 // ── Field & section definitions ─────────────────────────────────────────────
 
@@ -266,6 +266,9 @@ function AdminPanel() {
   const [dryRunning, setDryRunning]         = useState(false)
   const [dryRunResults, setDryRunResults]   = useState<Record<string, ConnectionTestResult> | null>(null)
   const [dryRunError, setDryRunError]       = useState<string | null>(null)
+  const [meshyTesting, setMeshyTesting]     = useState(false)
+  const [meshyResult, setMeshyResult]       = useState<ConnectionTestResult | null>(null)
+  const [meshyError, setMeshyError]         = useState<string | null>(null)
 
   const handleRestart = async () => {
     setRestartState('restarting')
@@ -314,6 +317,20 @@ function AdminPanel() {
       setDryRunError(e instanceof Error ? e.message : 'Dry run failed')
     } finally {
       setDryRunning(false)
+    }
+  }
+
+  const handleMeshyTest = async () => {
+    setMeshyTesting(true)
+    setMeshyResult(null)
+    setMeshyError(null)
+    try {
+      const res = await meshyTest()
+      setMeshyResult(res)
+    } catch (e) {
+      setMeshyError(e instanceof Error ? e.message : 'Test failed')
+    } finally {
+      setMeshyTesting(false)
     }
   }
 
@@ -498,6 +515,58 @@ function AdminPanel() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Meshy 3D Test */}
+      <div className="border border-j-border rounded-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 bg-j-surf border-b border-j-border">
+          <div>
+            <span className="font-mono text-[11px] text-j-cyan tracking-[0.15em] uppercase">
+              Meshy 3D API
+            </span>
+            <p className="font-mono text-[9px] text-j-cdim mt-0.5">
+              Confirms CF worker can reach the Meshy API with the saved key.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={meshyTesting}
+            onClick={handleMeshyTest}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-sm border
+              font-mono text-[10px] tracking-[0.1em] uppercase transition-colors flex-shrink-0
+              ${meshyTesting
+                ? 'border-j-border text-j-muted cursor-not-allowed'
+                : 'border-j-cyan text-j-cyan hover:bg-j-cyan/10 cursor-pointer'
+              }`}
+          >
+            {meshyTesting ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
+            {meshyTesting ? 'Testing…' : 'Test'}
+          </button>
+        </div>
+        <div className="px-5 py-4 bg-j-bg">
+          {meshyError && (
+            <p className="font-mono text-[11px] text-j-err mb-3">{meshyError}</p>
+          )}
+          {!meshyResult && !meshyTesting && (
+            <p className="font-mono text-[10px] text-j-cdim">
+              Requires CF_API_URL and CF_API_KEY to be saved and the service restarted.
+            </p>
+          )}
+          {meshyResult && (
+            <div className="flex items-start gap-3">
+              <Circle
+                size={8}
+                className={`flex-shrink-0 mt-0.5 fill-current ${meshyResult.ok ? 'text-j-green' : 'text-j-err'}`}
+              />
+              <div>
+                <span className={`font-mono text-[10px] ${meshyResult.ok ? 'text-j-green' : 'text-j-err'}`}>
+                  {meshyResult.ok ? 'OK' : 'FAIL'}
+                </span>
+                <p className="font-mono text-[9px] text-j-cdim mt-0.5 break-all">{meshyResult.detail}</p>
+              </div>
             </div>
           )}
         </div>
