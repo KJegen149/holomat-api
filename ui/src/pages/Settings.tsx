@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Settings as SettingsIcon, Save, Loader2, RotateCcw, CheckCircle, Power, Zap, Circle } from 'lucide-react'
-import { fetchSettings, saveSettings, restartService, testConnections, fetchHealth, type ConnectionTestResult } from '../api/client'
+import { fetchSettings, saveSettings, restartService, testConnections, bambuDryRun, bambuCloudAuth, fetchHealth, type ConnectionTestResult } from '../api/client'
 
 // ── Field & section definitions ─────────────────────────────────────────────
 
@@ -253,10 +253,13 @@ function SectionPanel({ section, serverValues, formValues, onChange, onSave, sav
 type RestartState = 'idle' | 'restarting' | 'online' | 'timeout'
 
 function AdminPanel() {
-  const [restartState, setRestartState] = useState<RestartState>('idle')
-  const [testing, setTesting]           = useState(false)
-  const [testResults, setTestResults]   = useState<Record<string, ConnectionTestResult> | null>(null)
-  const [testError, setTestError]       = useState<string | null>(null)
+  const [restartState, setRestartState]     = useState<RestartState>('idle')
+  const [testing, setTesting]               = useState(false)
+  const [testResults, setTestResults]       = useState<Record<string, ConnectionTestResult> | null>(null)
+  const [testError, setTestError]           = useState<string | null>(null)
+  const [dryRunning, setDryRunning]         = useState(false)
+  const [dryRunResults, setDryRunResults]   = useState<Record<string, ConnectionTestResult> | null>(null)
+  const [dryRunError, setDryRunError]       = useState<string | null>(null)
 
   const handleRestart = async () => {
     setRestartState('restarting')
@@ -291,6 +294,20 @@ function AdminPanel() {
       setTestError(e instanceof Error ? e.message : 'Test failed')
     } finally {
       setTesting(false)
+    }
+  }
+
+  const handleDryRun = async () => {
+    setDryRunning(true)
+    setDryRunResults(null)
+    setDryRunError(null)
+    try {
+      const res = await bambuDryRun()
+      setDryRunResults(res.results)
+    } catch (e) {
+      setDryRunError(e instanceof Error ? e.message : 'Dry run failed')
+    } finally {
+      setDryRunning(false)
     }
   }
 
@@ -413,6 +430,141 @@ function AdminPanel() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Bambu Dry Run */}
+      <div className="border border-j-border rounded-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 bg-j-surf border-b border-j-border">
+          <div>
+            <span className="font-mono text-[11px] text-j-cyan tracking-[0.15em] uppercase">
+              Bambu Printer Dry Run
+            </span>
+            <p className="font-mono text-[9px] text-j-cdim mt-0.5">
+              FTPS login · Cloud auth · Live MQTT status poll — no file sent, no print triggered. Allow ~30 s.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={dryRunning}
+            onClick={handleDryRun}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-sm border
+              font-mono text-[10px] tracking-[0.1em] uppercase transition-colors flex-shrink-0
+              ${dryRunning
+                ? 'border-j-border text-j-muted cursor-not-allowed'
+                : 'border-j-cyan text-j-cyan hover:bg-j-cyan/10 cursor-pointer'
+              }`}
+          >
+            {dryRunning ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
+            {dryRunning ? 'Running…' : 'Dry Run'}
+          </button>
+        </div>
+        <div className="px-5 py-4 bg-j-bg">
+          {dryRunError && (
+            <p className="font-mono text-[11px] text-j-err mb-3">{dryRunError}</p>
+          )}
+          {!dryRunResults && !dryRunning && (
+            <p className="font-mono text-[10px] text-j-cdim">
+              Tests the full print pipeline up to the point of sending a file.
+            </p>
+          )}
+          {dryRunResults && (
+            <div className="space-y-2">
+              {Object.entries(dryRunResults).map(([key, result]) => (
+                <div key={key} className="flex items-start gap-3">
+                  <Circle
+                    size={8}
+                    className={`flex-shrink-0 mt-0.5 fill-current ${result.ok ? 'text-j-green' : 'text-j-err'}`}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono text-[10px] text-j-text tracking-[0.05em] w-36 flex-shrink-0">
+                        {key === 'ftps_login'  ? 'FTPS Login'      :
+                         key === 'cloud_auth'  ? 'Cloud Auth'      :
+                         key === 'mqtt_status' ? 'MQTT Status Poll' : key}
+                      </span>
+                      <span className={`font-mono text-[10px] ${result.ok ? 'text-j-green' : 'text-j-err'}`}>
+                        {result.ok ? 'OK' : 'FAIL'}
+                      </span>
+                    </div>
+                    <p className="font-mono text-[9px] text-j-cdim mt-0.5 break-all">
+                      {result.detail}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── OTP panel — rendered below the Printer SectionPanel ──────────────────────
+
+function BambuOtpPanel() {
+  const [otp, setOtp]         = useState('')
+  const [busy, setBusy]       = useState(false)
+  const [result, setResult]   = useState<{ ok: boolean; detail: string } | null>(null)
+
+  const handleAuth = async () => {
+    setBusy(true)
+    setResult(null)
+    try {
+      const res = await bambuCloudAuth(otp)
+      setResult({ ok: res.ok, detail: res.detail })
+      if (res.ok) setOtp('')
+    } catch (e) {
+      setResult({ ok: false, detail: e instanceof Error ? e.message : 'Auth failed' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-4 border border-j-border rounded-sm overflow-hidden">
+      <div className="px-5 py-3 bg-j-surf border-b border-j-border">
+        <span className="font-mono text-[11px] text-j-cyan tracking-[0.15em] uppercase">
+          Cloud Authentication
+        </span>
+        <p className="font-mono text-[9px] text-j-cdim mt-0.5">
+          Authenticate with Bambu cloud using saved credentials. Enter OTP only if prompted by MFA.
+          Token is cached — re-run if auth expires.
+        </p>
+      </div>
+      <div className="px-5 py-4 bg-j-bg space-y-3">
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={otp}
+            onChange={e => setOtp(e.target.value)}
+            placeholder="OTP code (leave blank if not required)"
+            className="flex-1 bg-j-bg border border-j-border rounded-sm px-3 py-2
+              font-mono text-[11px] text-j-text placeholder-j-cdim
+              focus:outline-none focus:border-j-cyan transition-colors"
+            autoComplete="one-time-code"
+            maxLength={8}
+          />
+          <button
+            type="button"
+            disabled={busy}
+            onClick={handleAuth}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-sm border flex-shrink-0
+              font-mono text-[10px] tracking-[0.1em] uppercase transition-colors
+              ${busy
+                ? 'border-j-border text-j-muted cursor-not-allowed'
+                : 'border-j-cyan text-j-cyan hover:bg-j-cyan/10 cursor-pointer'
+              }`}
+          >
+            {busy ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
+            {busy ? 'Authenticating…' : 'Authenticate'}
+          </button>
+        </div>
+        {result && (
+          <p className={`font-mono text-[10px] ${result.ok ? 'text-j-green' : 'text-j-err'}`}>
+            {result.ok ? '✓ ' : '✗ '}{result.detail}
+          </p>
+        )}
       </div>
     </div>
   )
@@ -560,15 +712,18 @@ export default function Settings() {
 
         {activeSection === 'administration'
           ? <AdminPanel />
-          : <SectionPanel
-              section={currentSection}
-              serverValues={serverValues}
-              formValues={formValues}
-              onChange={handleChange}
-              onSave={handleSave}
-              saving={saving}
-              savedSection={savedSection}
-            />
+          : <>
+              <SectionPanel
+                section={currentSection}
+                serverValues={serverValues}
+                formValues={formValues}
+                onChange={handleChange}
+                onSave={handleSave}
+                saving={saving}
+                savedSection={savedSection}
+              />
+              {activeSection === 'printer' && <BambuOtpPanel />}
+            </>
         }
       </div>
     </div>

@@ -473,3 +473,15 @@ export interface ConnectionTestResult {
 export async function testConnections(): Promise<{ results: Record<string, ConnectionTestResult> }> {
   return _checkSettings(await fetch('/api/settings/test'))
 }
+
+export async function bambuDryRun(): Promise<{ results: Record<string, ConnectionTestResult> }> {
+  return _checkSettings(await fetch('/api/settings/test/bambu'))
+}
+
+export async function bambuCloudAuth(otp: string): Promise<{ ok: boolean; user_id: string; detail: string }> {
+  return _checkSettings(await fetch('/api/settings/bambu-auth', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ otp }),
+  }))
+}

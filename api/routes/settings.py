@@ -235,3 +235,146 @@ async def test_connections():
             for label, r in zip(labels, results)
         }
     }
+
+
+# ── GET /api/settings/test/bambu ─────────────────────────────────────────────
+
+@router.get("/test/bambu")
+async def test_bambu_dry_run():
+    """
+    Full Bambu dry run — no file upload, no print trigger.
+    Tests: FTPS login, cloud auth (user_id), live MQTT status poll.
+    May take up to 30 s (MQTT status poll retries).
+    """
+    import ssl
+    env = _read_env()
+    ip           = _resolve("BAMBU_IP", env)
+    access_code  = _resolve("BAMBU_ACCESS_CODE", env)
+    serial       = _resolve("BAMBU_SERIAL", env)
+    email        = _resolve("BAMBU_EMAIL", env)
+    password     = _resolve("BAMBU_PASSWORD", env)
+    region       = _resolve("BAMBU_REGION", env) or "global"
+    token_file   = _resolve("BAMBU_TOKEN_FILE", env) or "scan_data/.bambu_token"
+    ftp_port     = int(_resolve("BAMBU_FTP_PORT", env) or "990")
+    mqtt_port    = int(_resolve("BAMBU_MQTT_PORT", env) or "8883")
+
+    loop = asyncio.get_running_loop()
+
+    # ── Step 1: FTPS login ────────────────────────────────────────────────────
+    async def _ftps_login() -> dict:
+        if not ip or not access_code:
+            return {"ok": False, "detail": "BAMBU_IP or BAMBU_ACCESS_CODE not set"}
+        def _do():
+            from core.printer import _ImplicitFTP_TLS
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            ftp = _ImplicitFTP_TLS(context=ctx)
+            ftp.connect(host=ip, port=ftp_port, timeout=10)
+            ftp.login(user="bblp", passwd=access_code)
+            ftp.prot_p()
+            try:
+                files = ftp.nlst("/cache")
+            except Exception:
+                files = []
+            ftp.quit()
+            return len(files)
+        try:
+            n = await loop.run_in_executor(None, _do)
+            return {"ok": True, "detail": f"FTPS login OK — /cache has {n} file(s)"}
+        except Exception as e:
+            return {"ok": False, "detail": str(e)}
+
+    # ── Step 2: Cloud auth (user_id) ─────────────────────────────────────────
+    async def _cloud_auth() -> dict:
+        if not email or not password:
+            return {"ok": False, "detail": "BAMBU_EMAIL or BAMBU_PASSWORD not set"}
+        def _do():
+            from bambulab import BambuAuthenticator, BambuClient  # type: ignore
+            Path(token_file).parent.mkdir(parents=True, exist_ok=True)
+            auth = BambuAuthenticator(region=region, token_file=token_file)
+            token = auth.get_or_create_token(username=email, password=password)
+            client = BambuClient(token=token)
+            info = client.get_user_info()
+            uid = str(info.get("uid") or info.get("userId") or info.get("user_id", ""))
+            return uid
+        try:
+            uid = await loop.run_in_executor(None, _do)
+            if uid:
+                return {"ok": True, "detail": f"Authenticated — user_id={uid}"}
+            return {"ok": False, "detail": "Auth succeeded but no user_id returned"}
+        except Exception as e:
+            return {"ok": False, "detail": str(e)}
+
+    # ── Step 3: MQTT status poll ──────────────────────────────────────────────
+    async def _mqtt_status() -> dict:
+        if not ip or not access_code or not serial:
+            return {"ok": False, "detail": "BAMBU_IP, BAMBU_ACCESS_CODE, or BAMBU_SERIAL not set"}
+        try:
+            from core.printer import get_status
+            result = await get_status()
+            if "error" in result:
+                return {"ok": False, "detail": result["error"]}
+            state = result.get("state", "unknown")
+            nozzle = result.get("nozzle_temp", 0)
+            bed = result.get("bed_temp", 0)
+            return {"ok": True, "detail": f"State={state}, nozzle={nozzle}°C, bed={bed}°C"}
+        except Exception as e:
+            return {"ok": False, "detail": str(e)}
+
+    r1, r2, r3 = await asyncio.gather(
+        _ftps_login(), _cloud_auth(), _mqtt_status(),
+        return_exceptions=True,
+    )
+    def _wrap(r):
+        return r if isinstance(r, dict) else {"ok": False, "detail": str(r)}
+    return {
+        "results": {
+            "ftps_login":  _wrap(r1),
+            "cloud_auth":  _wrap(r2),
+            "mqtt_status": _wrap(r3),
+        }
+    }
+
+
+# ── POST /api/settings/bambu-auth ────────────────────────────────────────────
+
+class BambuAuthBody(BaseModel):
+    otp: str = ""
+
+
+@router.post("/bambu-auth")
+async def bambu_cloud_auth(body: BambuAuthBody):
+    """Authenticate with Bambu cloud, optionally with an OTP code, and cache the token."""
+    env = _read_env()
+    email      = _resolve("BAMBU_EMAIL", env)
+    password   = _resolve("BAMBU_PASSWORD", env)
+    region     = _resolve("BAMBU_REGION", env) or "global"
+    token_file = _resolve("BAMBU_TOKEN_FILE", env) or "scan_data/.bambu_token"
+
+    if not email or not password:
+        from fastapi import HTTPException
+        raise HTTPException(400, "BAMBU_EMAIL and BAMBU_PASSWORD must be set first")
+
+    loop = asyncio.get_running_loop()
+
+    def _do():
+        from bambulab import BambuAuthenticator, BambuClient  # type: ignore
+        Path(token_file).parent.mkdir(parents=True, exist_ok=True)
+        auth = BambuAuthenticator(region=region, token_file=token_file)
+        otp = body.otp.strip() or None
+        try:
+            token = auth.get_or_create_token(username=email, password=password, otp=otp)
+        except TypeError:
+            token = auth.get_or_create_token(username=email, password=password)
+        client = BambuClient(token=token)
+        info = client.get_user_info()
+        uid = str(info.get("uid") or info.get("userId") or info.get("user_id", ""))
+        return uid
+
+    try:
+        uid = await loop.run_in_executor(None, _do)
+        ok = bool(uid)
+        return {"ok": ok, "user_id": uid, "detail": f"Authenticated — user_id={uid}" if ok else "No user_id in response"}
+    except Exception as e:
+        return {"ok": False, "user_id": "", "detail": str(e)}
