@@ -30,6 +30,7 @@ KNOWN_KEYS = [
     "BAMBU_REGION",
     "BAMBU_IP",
     "BAMBU_ACCESS_CODE",
+    "BAMBU_AMS_SLOT",
     "BAMBU_CERT",
     "HA_URL",
     "HA_MQTT_HOST",

@@ -4,7 +4,7 @@ import { fetchSettings, saveSettings, restartService, testConnections, bambuDryR
 
 // ── Field & section definitions ─────────────────────────────────────────────
 
-type FieldType = 'text' | 'password' | 'select' | 'toggle'
+type FieldType = 'text' | 'password' | 'select' | 'toggle' | 'header'
 
 interface FieldDef {
   key: string
@@ -29,6 +29,7 @@ const SECTIONS: SectionDef[] = [
       { key: 'BAMBU_SERIAL',      label: 'Serial Number',          type: 'text',     placeholder: '01P00C…' },
       { key: 'BAMBU_IP',          label: 'LAN IP Address',         type: 'text',     placeholder: '10.11.12.91' },
       { key: 'BAMBU_ACCESS_CODE', label: 'Access Code',            type: 'password', hint: 'Settings → Network on printer' },
+      { key: 'BAMBU_AMS_SLOT',    label: 'AMS Filament Slot',      type: 'text',     placeholder: '0', hint: '0-indexed slot; leave blank for default' },
       { key: 'BAMBU_EMAIL',       label: 'Bambu Account Email',    type: 'text',     placeholder: 'you@example.com' },
       { key: 'BAMBU_PASSWORD',    label: 'Bambu Account Password', type: 'password' },
       { key: 'BAMBU_REGION',      label: 'Region',                 type: 'select',   options: ['global', 'china'] },
@@ -36,11 +37,15 @@ const SECTIONS: SectionDef[] = [
     ],
   },
   {
-    id: 'gemini',
-    label: 'Gemini AI',
+    id: 'apis',
+    label: 'External APIs',
     fields: [
-      { key: 'GEMINI_API_KEY', label: 'API Key', type: 'password', hint: 'Required for object scanning (Phase 4)' },
-      { key: 'GEMINI_MODEL',   label: 'Model',   type: 'text',     placeholder: 'gemini-2.5-flash' },
+      { key: '',               label: 'GEMINI AI',          type: 'header' },
+      { key: 'GEMINI_API_KEY', label: 'API Key',            type: 'password', hint: 'Vision (object scan) + text generation (case design)' },
+      { key: 'GEMINI_MODEL',   label: 'Model',              type: 'text',     placeholder: 'gemini-2.5-flash' },
+      { key: '',               label: 'CLOUDFLARE WORKER',  type: 'header' },
+      { key: 'CF_API_URL',     label: 'Worker URL',         type: 'text',     placeholder: 'https://jarvis-api.kjeg.workers.dev', hint: 'Proxies Gallery storage, Meshy 3D generation, and Voice AI (STT / TTS / LLM)' },
+      { key: 'CF_API_KEY',     label: 'Worker API Key',     type: 'password' },
     ],
   },
   {
@@ -53,14 +58,6 @@ const SECTIONS: SectionDef[] = [
       { key: 'HA_MQTT_USER', label: 'MQTT User',        type: 'text' },
       { key: 'HA_MQTT_PASS', label: 'MQTT Password',   type: 'password' },
       { key: 'HA_TOKEN',     label: 'Long-Lived Token', type: 'password', hint: 'Settings → Profile → Long-Lived Tokens' },
-    ],
-  },
-  {
-    id: 'cloudflare',
-    label: 'Cloudflare',
-    fields: [
-      { key: 'CF_API_URL', label: 'Worker URL', type: 'text',     placeholder: 'https://jarvis-api.kjeg.workers.dev' },
-      { key: 'CF_API_KEY', label: 'API Key',    type: 'password', hint: 'Required — set after install' },
     ],
   },
   {
@@ -118,6 +115,15 @@ function FieldRow({ field, serverValue, value, onChange }: FieldRowProps) {
     'w-full bg-j-bg border border-j-border rounded-sm px-3 py-2 ' +
     'font-mono text-[11px] text-j-text placeholder-j-cdim ' +
     'focus:outline-none focus:border-j-cyan transition-colors'
+
+  if (field.type === 'header') {
+    return (
+      <div className="flex items-center gap-3 pt-4 pb-1 first:pt-0">
+        <span className="font-mono text-[10px] font-bold tracking-[0.15em] text-j-cyan">{field.label}</span>
+        <div className="flex-1 h-px bg-j-border" />
+      </div>
+    )
+  }
 
   if (field.type === 'toggle') {
     const isTrue = value === 'true'
@@ -236,7 +242,7 @@ function SectionPanel({ section, serverValues, formValues, onChange, onSave, sav
       <div className="px-5 py-4 space-y-4 bg-j-bg">
         {section.fields.map(field => (
           <FieldRow
-            key={field.key}
+            key={field.key || `__hdr_${field.label}`}
             field={field}
             serverValue={serverValues[field.key] ?? ''}
             value={formValues[field.key] ?? ''}
@@ -616,6 +622,7 @@ export default function Settings() {
 
     const payload: Record<string, string> = {}
     for (const field of section.fields) {
+      if (!field.key) continue  // header dividers have no key
       const val = formValues[field.key] ?? ''
       if (SENSITIVE_KEYS.has(field.key)) {
         if (val && val !== MASK) payload[field.key] = val
@@ -633,7 +640,7 @@ export default function Settings() {
       setFormValues(prev => {
         const next = { ...prev }
         for (const field of section.fields) {
-          if (SENSITIVE_KEYS.has(field.key)) next[field.key] = ''
+          if (field.key && SENSITIVE_KEYS.has(field.key)) next[field.key] = ''
         }
         return next
       })
