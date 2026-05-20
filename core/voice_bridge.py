@@ -53,10 +53,22 @@ _HA_TOKEN         = os.getenv("HA_TOKEN", "")
 # Audio constants — openWakeWord requires 16 kHz mono 16-bit, 80 ms chunks
 _MIC_RATE     = 16_000
 _CHANNELS     = 1
-_CHUNK_FRAMES = 1_280      # 80 ms at 16 kHz
+_CHUNK_FRAMES = 1_280      # 80 ms at 16 kHz — OWW hard requirement
 _MAX_REC_SEC  = 12
 _SILENCE_SEC  = 1.2
 _VAD_THRESH   = 300.0      # RMS energy below this = silence
+
+
+def _resample(chunk: np.ndarray, from_rate: int, to_rate: int) -> np.ndarray:
+    """Linear resample chunk from from_rate to to_rate (no scipy needed)."""
+    if from_rate == to_rate:
+        return chunk
+    target = int(round(len(chunk) * to_rate / from_rate))
+    return np.interp(
+        np.linspace(0, len(chunk) - 1, target),
+        np.arange(len(chunk)),
+        chunk.astype(np.float32),
+    ).astype(np.int16)
 
 
 # ── Shared helpers ────────────────────────────────────────────────────────────
@@ -409,22 +421,30 @@ class VoiceBridge:
             return
 
         mic_idx = int(_MIC_INDEX) if _MIC_INDEX else None
-        log.info("Voice loop ready — listening for 'Hey Jarvis'")
+
+        # Open at the device's native rate; resample to 16 kHz for OWW
+        dev_info = sd.query_devices(mic_idx, kind="input")
+        native_rate = int(dev_info["default_samplerate"])
+        native_block = int(_CHUNK_FRAMES * native_rate / _MIC_RATE)
+        log.info(
+            "Voice loop ready — listening for 'Hey Jarvis' (mic %d Hz → resample to %d Hz)",
+            native_rate, _MIC_RATE,
+        )
         self._set_state("idle")
         self._emit("voice_ready", {"message": "Listening for 'Hey Jarvis'"})
 
         try:
             with sd.InputStream(
-                samplerate=_MIC_RATE,
+                samplerate=native_rate,
                 channels=_CHANNELS,
                 dtype="int16",
-                blocksize=_CHUNK_FRAMES,
+                blocksize=native_block,
                 device=mic_idx,
             ) as stream:
                 rolling: list[np.ndarray] = []
                 while not self._stop_event.is_set():
-                    chunk, _ = stream.read(_CHUNK_FRAMES)
-                    chunk = chunk.flatten()
+                    raw, _ = stream.read(native_block)
+                    chunk = _resample(raw.flatten(), native_rate, _MIC_RATE)
                     rolling.append(chunk)
 
                     # Rolling 3-second buffer for wake word context
@@ -442,7 +462,7 @@ class VoiceBridge:
                         self._emit("wake_detected", {})
                         wakemodel.reset()
 
-                        audio = self._record_command(stream)
+                        audio = self._record_command(stream, native_rate, native_block)
                         if audio is not None and audio.size > 0:
                             self._process_command(audio)
 
@@ -454,7 +474,7 @@ class VoiceBridge:
         finally:
             self.running = False
 
-    def _record_command(self, stream) -> np.ndarray | None:
+    def _record_command(self, stream, native_rate: int, native_block: int) -> np.ndarray | None:
         """Record speech from stream until trailing silence or max duration."""
         max_frames = _MAX_REC_SEC * _MIC_RATE // _CHUNK_FRAMES
         silence_needed = int(_SILENCE_SEC * _MIC_RATE / _CHUNK_FRAMES)
@@ -465,8 +485,8 @@ class VoiceBridge:
         for _ in range(max_frames):
             if self._stop_event.is_set():
                 return None
-            chunk, _ = stream.read(_CHUNK_FRAMES)
-            chunk = chunk.flatten()
+            raw, _ = stream.read(native_block)
+            chunk = _resample(raw.flatten(), native_rate, _MIC_RATE)
             frames.append(chunk)
 
             if _rms(chunk) > _VAD_THRESH:
