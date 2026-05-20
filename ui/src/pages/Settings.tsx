@@ -76,7 +76,7 @@ const SECTIONS: SectionDef[] = [
     id: 'voice',
     label: 'Voice Bridge',
     fields: [
-      { key: 'WYOMING_ENABLED',          label: 'Enable Voice Bridge',   type: 'toggle' },
+      { key: 'WYOMING_ENABLED',          label: 'Enable Voice Bridge',   type: 'toggle', hint: 'Save then restart service (Administration tab) to activate' },
       { key: 'WYOMING_STT_PORT',         label: 'STT Server Port',       type: 'text', placeholder: '10300' },
       { key: 'WYOMING_TTS_PORT',         label: 'TTS Server Port',       type: 'text', placeholder: '10200' },
       { key: 'WYOMING_WAKE_SENSITIVITY', label: 'Wake Word Sensitivity', type: 'text', placeholder: '0.5', hint: '0.0–1.0, lower = more sensitive' },
