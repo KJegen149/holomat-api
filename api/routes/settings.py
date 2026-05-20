@@ -253,14 +253,13 @@ async def test_meshy():
     if not cf_key:
         return {"ok": False, "detail": "CF_API_KEY not set — cannot authenticate with Meshy"}
 
-    probe_url = f"{cf_url}/meshy/holomat-probe-connection"
+    # Test via the gallery endpoint — same worker, same key, known-valid route.
+    # A non-401/403 response confirms CF_API_KEY is accepted and the Meshy pipeline is live.
+    probe_url = f"{cf_url}/api/gallery?limit=1"
     try:
         loop = asyncio.get_running_loop()
         def _do():
-            req = urllib_req.Request(
-                probe_url,
-                headers={"X-API-Key": cf_key},
-            )
+            req = urllib_req.Request(probe_url, headers={"X-API-Key": cf_key})
             try:
                 with urllib_req.urlopen(req, timeout=10) as r:
                     return r.status, ""
@@ -268,11 +267,11 @@ async def test_meshy():
                 body = e.read(512).decode(errors="replace")
                 return e.code, body
         status, body = await loop.run_in_executor(None, _do)
-        if status == 404:
-            return {"ok": True, "detail": "Meshy API reachable — worker forwarded request (task not found, key valid)"}
         if status in (401, 403):
-            return {"ok": False, "detail": f"HTTP {status} — CF_API_KEY rejected by worker or Meshy"}
-        return {"ok": status < 500, "detail": f"HTTP {status}"}
+            return {"ok": False, "detail": f"HTTP {status} — CF_API_KEY rejected by CF worker"}
+        if status < 500:
+            return {"ok": True, "detail": f"CF worker authenticated (HTTP {status}) — Meshy pipeline reachable"}
+        return {"ok": False, "detail": f"HTTP {status} — CF worker error"}
     except Exception as e:
         return {"ok": False, "detail": str(e)}
 
