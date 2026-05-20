@@ -19,7 +19,7 @@ async def ha_status() -> JSONResponse:
         "running":    ha_bridge.running,
         "broker": {
             "host": os.getenv("HA_MQTT_HOST", ""),
-            "port": int(os.getenv("HA_MQTT_PORT", "1883")),
+            "port": int(os.getenv("HA_MQTT_PORT") or "1883"),
         },
         "ha_url":    os.getenv("HA_URL", ""),
         "timestamp": datetime.now(timezone.utc).isoformat(),

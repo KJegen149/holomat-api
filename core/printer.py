@@ -40,9 +40,9 @@ BAMBU_REGION      = os.getenv("BAMBU_REGION", "global")   # "global" or "china"
 BAMBU_IP          = os.getenv("BAMBU_IP", "")
 BAMBU_ACCESS_CODE = os.getenv("BAMBU_ACCESS_CODE", "")
 BAMBU_CERT        = os.getenv("BAMBU_CERT", "certs/printer.pem")
-BAMBU_FTP_PORT    = int(os.getenv("BAMBU_FTP_PORT", "990"))
-BAMBU_MQTT_PORT   = int(os.getenv("BAMBU_MQTT_PORT", "8883"))
-BAMBU_AMS_SLOT    = int(os.getenv("BAMBU_AMS_SLOT", "0"))
+BAMBU_FTP_PORT    = int(os.getenv("BAMBU_FTP_PORT") or "990")
+BAMBU_MQTT_PORT   = int(os.getenv("BAMBU_MQTT_PORT") or "8883")
+BAMBU_AMS_SLOT    = int(os.getenv("BAMBU_AMS_SLOT") or "0")
 
 
 def is_cloud_configured() -> bool:

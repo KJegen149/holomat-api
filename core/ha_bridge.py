@@ -19,7 +19,7 @@ from core.logger import get_logger
 log = get_logger(__name__)
 
 HA_MQTT_HOST = os.getenv("HA_MQTT_HOST", "")
-HA_MQTT_PORT = int(os.getenv("HA_MQTT_PORT", "1883"))
+HA_MQTT_PORT = int(os.getenv("HA_MQTT_PORT") or "1883")
 HA_MQTT_USER = os.getenv("HA_MQTT_USER", "")
 HA_MQTT_PASS = os.getenv("HA_MQTT_PASS", "")
 

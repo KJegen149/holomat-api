@@ -372,7 +372,7 @@ async def slice_model(
     infill: int = 15,
     supports: str = "tree",
     output_dir: str = "/tmp",
-    ams_slot: int = int(os.getenv("BAMBU_AMS_SLOT", "0")),
+    ams_slot: int = int(os.getenv("BAMBU_AMS_SLOT") or "0"),
 ) -> str:
     """
     Slice input_path (binary STL) with OrcaSlicer, return path to output .3mf.

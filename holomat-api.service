@@ -1,5 +1,5 @@
 [Unit]
-Description=Holomat API Server (JARVIS)
+Description=Holomat API Server (JARVIS) v0.9.0 — Phase 9
 After=network-online.target smbd.service
 Wants=network-online.target
 
@@ -24,15 +24,17 @@ Environment=BAMBU_SERIAL=01P00C5C0701414
 Environment=BAMBU_IP=10.11.12.91
 Environment=BAMBU_REGION=global
 
-# ── Secrets: do NOT add here — use systemd override instead ───────────────
-# Run:  sudo systemctl edit holomat-api
-# Then add under [Service]:
+# ── Secrets: set via Settings UI (Phase 9) → saved to .env ───────────────
+# Open http://KJLC-AI-01:8100/settings and use the credential forms.
+# The .env file takes priority over the Environment= lines above (override=True).
+# Alternatively: sudo systemctl edit holomat-api → add under [Service]:
+#   Environment=GEMINI_API_KEY=your_key
+#   Environment=CF_API_KEY=your_key
 #   Environment=BAMBU_ACCESS_CODE=your_code
 #   Environment=BAMBU_EMAIL=your@email.com
 #   Environment=BAMBU_PASSWORD=your_password
-#   Environment=GEMINI_API_KEY=your_key
-#   Environment=CF_API_KEY=your_key
 #   Environment=HA_MQTT_PASS=your_password
+#   Environment=HA_TOKEN=your_token
 
 [Install]
 WantedBy=multi-user.target

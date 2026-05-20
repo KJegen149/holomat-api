@@ -33,8 +33,8 @@ LIBRARY_FILE = SCAN_DIR / "library.json"
 BACKGROUND_FILE = SCAN_DIR / "background.npy"
 OBJECT_LIBRARY_MAX = 50
 
-_DIFF_THRESHOLD = int(os.getenv("SCAN_DIFF_THRESHOLD", "30"))
-_MIN_CONTOUR_AREA_PX = int(os.getenv("SCAN_MIN_CONTOUR_AREA", "500"))
+_DIFF_THRESHOLD = int(os.getenv("SCAN_DIFF_THRESHOLD") or "30")
+_MIN_CONTOUR_AREA_PX = int(os.getenv("SCAN_MIN_CONTOUR_AREA") or "500")
 
 
 def _ensure_dir() -> None:

@@ -12,7 +12,7 @@ from core.logger import get_logger
 
 log = get_logger(__name__)
 
-CAMERA_DEVICE = int(os.getenv("CAMERA_DEVICE", "0"))
+CAMERA_DEVICE = int(os.getenv("CAMERA_DEVICE") or "0")
 FRAME_WIDTH = 1280
 FRAME_HEIGHT = 720
 JPEG_QUALITY = 85

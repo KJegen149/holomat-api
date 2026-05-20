@@ -33,11 +33,11 @@ MAX_RMSE = 1.0
 MAX_AGE_DAYS = 30
 
 # ChArUco board geometry — mm, env-overridable
-_BOARD_COLS = int(os.getenv("CHARUCO_COLS", "7"))
-_BOARD_ROWS = int(os.getenv("CHARUCO_ROWS", "5"))
-_SQUARE_MM = float(os.getenv("CHARUCO_SQUARE_MM", "40.0"))
-_MARKER_MM = float(os.getenv("CHARUCO_MARKER_MM", "30.0"))
-_MIN_CHARUCO_CORNERS = int(os.getenv("CHARUCO_MIN_CORNERS", "6"))
+_BOARD_COLS = int(os.getenv("CHARUCO_COLS") or "7")
+_BOARD_ROWS = int(os.getenv("CHARUCO_ROWS") or "5")
+_SQUARE_MM = float(os.getenv("CHARUCO_SQUARE_MM") or "40.0")
+_MARKER_MM = float(os.getenv("CHARUCO_MARKER_MM") or "30.0")
+_MIN_CHARUCO_CORNERS = int(os.getenv("CHARUCO_MIN_CORNERS") or "6")
 
 
 def _make_board():
