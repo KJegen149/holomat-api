@@ -478,6 +478,10 @@ export async function bambuDryRun(): Promise<{ results: Record<string, Connectio
   return _checkSettings(await fetch('/api/settings/test/bambu'))
 }
 
+export async function meshyTest(): Promise<ConnectionTestResult> {
+  return _checkSettings(await fetch('/api/settings/test/meshy'))
+}
+
 export async function bambuCloudAuth(otp: string): Promise<{ ok: boolean; user_id: string; detail: string }> {
   return _checkSettings(await fetch('/api/settings/bambu-auth', {
     method: 'POST',

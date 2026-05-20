@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Crosshair, Scan, Printer, Image, Settings, Home, Mic } from 'lucide-react'
+import { LayoutDashboard, Crosshair, Scan, Printer, Image, Settings, Home, Mic, Keyboard } from 'lucide-react'
 import Console from './Console'
 import StatusPill, { type PillState } from './StatusPill'
+import OnScreenKeyboard from './OnScreenKeyboard'
 import type { LogEntry } from '../hooks/useWebSocket'
 import type { HealthResponse } from '../api/client'
 
@@ -34,6 +35,7 @@ interface Props {
 
 export default function Layout({ children, logs, health, healthError }: Props) {
   const [time, setTime] = useState(() => new Date().toTimeString().slice(0, 8))
+  const [showKeyboard, setShowKeyboard] = useState(false)
 
   useEffect(() => {
     const id = setInterval(() => setTime(new Date().toTimeString().slice(0, 8)), 1000)
@@ -58,6 +60,18 @@ export default function Layout({ children, logs, health, healthError }: Props) {
         <div className="flex-1" />
         <StatusPill state={sysState} label={sysLabel} />
         <StatusPill state={calState} label={calLabel} />
+        <button
+          type="button"
+          title="On-screen keyboard"
+          onClick={() => setShowKeyboard(s => !s)}
+          className={`p-1.5 rounded-sm border transition-colors ${
+            showKeyboard
+              ? 'border-j-cyan text-j-cyan bg-j-cyan/10'
+              : 'border-j-border text-j-muted hover:text-j-text hover:border-j-text'
+          }`}
+        >
+          <Keyboard size={15} strokeWidth={1.5} />
+        </button>
         <div className="text-j-text font-mono text-base font-semibold tracking-[0.1em]">{time}</div>
       </header>
 
@@ -98,6 +112,8 @@ export default function Layout({ children, logs, health, healthError }: Props) {
         {/* Live log console */}
         <Console logs={logs} />
       </div>
+
+      {showKeyboard && <OnScreenKeyboard onClose={() => setShowKeyboard(false)} />}
 
       {/* Bottom bar */}
       <footer className="flex items-center gap-4 px-6 py-2 border-t border-j-border bg-j-surf flex-shrink-0
