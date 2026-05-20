@@ -253,25 +253,35 @@ async def test_meshy():
     if not cf_key:
         return {"ok": False, "detail": "CF_API_KEY not set — cannot authenticate with Meshy"}
 
-    # Test via the gallery endpoint — same worker, same key, known-valid route.
-    # A non-401/403 response confirms CF_API_KEY is accepted and the Meshy pipeline is live.
-    probe_url = f"{cf_url}/api/gallery?limit=1"
+    # /api/meshy/balance authenticates with CF_API_KEY then calls Meshy with the
+    # worker's own MESHY_API_KEY secret — confirms both keys end-to-end.
+    probe_url = f"{cf_url}/api/meshy/balance"
     try:
         loop = asyncio.get_running_loop()
         def _do():
             req = urllib_req.Request(probe_url, headers={"X-API-Key": cf_key})
             try:
                 with urllib_req.urlopen(req, timeout=10) as r:
-                    return r.status, ""
+                    import json as _json
+                    body = _json.loads(r.read(2048).decode(errors="replace"))
+                    return r.status, body
             except urllib_err.HTTPError as e:
-                body = e.read(512).decode(errors="replace")
-                return e.code, body
+                body_str = e.read(512).decode(errors="replace")
+                try:
+                    import json as _json
+                    return e.code, _json.loads(body_str)
+                except Exception:
+                    return e.code, {}
         status, body = await loop.run_in_executor(None, _do)
         if status in (401, 403):
-            return {"ok": False, "detail": f"HTTP {status} — CF_API_KEY rejected by CF worker"}
+            return {"ok": False, "detail": f"HTTP {status} — CF_API_KEY rejected by worker"}
+        if status == 500 and "not configured" in str(body.get("error", "")):
+            return {"ok": False, "detail": "MESHY_API_KEY not set in Cloudflare Worker secrets"}
         if status < 500:
-            return {"ok": True, "detail": f"CF worker authenticated (HTTP {status}) — Meshy pipeline reachable"}
-        return {"ok": False, "detail": f"HTTP {status} — CF worker error"}
+            credits = body.get("credit_balance") or body.get("balance") or body.get("credits")
+            detail = f"Meshy authenticated — balance: {credits}" if credits is not None else f"Meshy reachable (HTTP {status})"
+            return {"ok": True, "detail": detail}
+        return {"ok": False, "detail": f"HTTP {status} — {body.get('error', 'worker error')}"}
     except Exception as e:
         return {"ok": False, "detail": str(e)}
 

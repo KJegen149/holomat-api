@@ -196,11 +196,11 @@ async def meshy_status(task_id: str) -> JSONResponse:
     import httpx
     headers: dict[str, str] = {}
     if cf_key:
-        headers["Authorization"] = f"Bearer {cf_key}"
+        headers["X-API-Key"] = cf_key
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get(f"{cf_url}/meshy/{task_id}", headers=headers)
+            r = await client.get(f"{cf_url}/api/meshy/status/{task_id}", headers=headers)
         return JSONResponse(r.json(), status_code=r.status_code)
     except httpx.RequestError as e:
         raise HTTPException(status_code=502, detail=f"CF worker unreachable: {e}")
