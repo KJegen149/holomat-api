@@ -433,3 +433,30 @@ export async function triggerVoice(): Promise<{ triggered: boolean; state: strin
 export async function clearVoiceHistory(): Promise<{ cleared: boolean }> {
   return _checkVoice(await fetch('/api/voice/history', { method: 'DELETE' }))
 }
+
+// ── Settings API (Phase 9) ───────────────────────────────────────────────────
+
+export interface SettingsResponse {
+  settings: Record<string, string>
+  env_file_exists: boolean
+}
+
+async function _checkSettings<T>(r: Response): Promise<T> {
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({})) as { detail?: string; error?: string }
+    throw new Error(body.detail ?? body.error ?? `HTTP ${r.status}`)
+  }
+  return r.json()
+}
+
+export async function fetchSettings(): Promise<SettingsResponse> {
+  return _checkSettings(await fetch('/api/settings'))
+}
+
+export async function saveSettings(settings: Record<string, string>): Promise<{ saved: boolean; restart_required: boolean }> {
+  return _checkSettings(await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ settings }),
+  }))
+}

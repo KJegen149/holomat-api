@@ -1,5 +1,5 @@
 """
-Holomat API  v0.8.0
+Holomat API  v0.9.0
 JARVIS Holomat — smart fabrication surface
 Runs on KJLC-AI-01 (10.11.12.129), port 8100
 
@@ -12,8 +12,8 @@ Phase structure:
   Phase 5  — OpenSCAD → STL compilation
   Phase 6  — gallery / SMB watcher
   Phase 7  — print queue (Bambu P1S)
-  Phase 8  — voice bridge / HA satellite ← current
-  Phase 9+ — settings, polish, batch scan
+  Phase 8  — voice bridge / HA satellite
+  Phase 9  — settings UI ← current
 """
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -37,6 +37,7 @@ from api.routes.gallery import router as gallery_router
 from api.routes.generate import router as generate_router
 from api.routes.ha import router as ha_router
 from api.routes.voice import router as voice_router
+from api.routes.settings import router as settings_router
 
 setup_logging()
 log = get_logger(__name__)
@@ -50,7 +51,7 @@ UI_PLACEHOLDER = BASE_DIR / "ui" / "index.html"  # Phase 0-1: boot placeholder
 async def lifespan(app: FastAPI):
     # Wire logger → WebSocket so all log lines stream to the Console app
     set_broadcast(ws_manager.broadcast)
-    log.info("━━━ Holomat v0.8.0 starting — Phase 8 ━━━")
+    log.info("━━━ Holomat v0.9.0 starting — Phase 9 ━━━")
 
     # HA MQTT bridge (Phase 3)
     try:
@@ -116,7 +117,7 @@ async def lifespan(app: FastAPI):
 # ── App ────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Holomat API",
-    version="0.8.0",
+    version="0.9.0",
     description="JARVIS Holomat — smart fabrication surface",
     lifespan=lifespan,
     docs_url="/api/docs",
@@ -141,6 +142,7 @@ app.include_router(gallery_router,     prefix="/api/gallery")
 app.include_router(generate_router,    prefix="/api/generate")
 app.include_router(ha_router,          prefix="/api/ha")
 app.include_router(voice_router,       prefix="/api/voice")
+app.include_router(settings_router,    prefix="/api/settings")
 
 
 # ── Static UI serving ──────────────────────────────────────────────────────
