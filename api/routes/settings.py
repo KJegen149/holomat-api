@@ -259,7 +259,7 @@ async def test_meshy():
         def _do():
             req = urllib_req.Request(
                 probe_url,
-                headers={"Authorization": f"Bearer {cf_key}"},
+                headers={"X-API-Key": cf_key},
             )
             try:
                 with urllib_req.urlopen(req, timeout=10) as r:
