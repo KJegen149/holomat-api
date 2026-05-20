@@ -39,14 +39,14 @@ log = get_logger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 _ENABLED          = os.getenv("WYOMING_ENABLED", "false").lower() == "true"
-_STT_PORT         = int(os.getenv("WYOMING_STT_PORT", "10300"))
-_TTS_PORT         = int(os.getenv("WYOMING_TTS_PORT", "10200"))
+_STT_PORT         = int(os.getenv("WYOMING_STT_PORT") or "10300")
+_TTS_PORT         = int(os.getenv("WYOMING_TTS_PORT") or "10200")
 _STT_URL          = os.getenv("WYOMING_STT_URL", "https://wyoming-stt.kjeg.workers.dev")
 _TTS_URL          = os.getenv("WYOMING_TTS_URL", "https://wyoming-tts.kjeg.workers.dev")
 _LLM_URL          = os.getenv("WYOMING_LLM_URL", "https://wyoming-llm.kjeg.workers.dev")
 _MIC_INDEX        = os.getenv("WYOMING_MIC_INDEX")
 _SPEAKER_INDEX    = os.getenv("WYOMING_SPEAKER_INDEX")
-_WAKE_SENSITIVITY = float(os.getenv("WYOMING_WAKE_SENSITIVITY", "0.5"))
+_WAKE_SENSITIVITY = float(os.getenv("WYOMING_WAKE_SENSITIVITY") or "0.5")
 _HA_URL           = os.getenv("HA_URL", "").rstrip("/")
 _HA_TOKEN         = os.getenv("HA_TOKEN", "")
 

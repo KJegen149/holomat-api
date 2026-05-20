@@ -23,11 +23,11 @@ BAMBU_IP          = os.getenv("BAMBU_IP", "")
 BAMBU_ACCESS_CODE = os.getenv("BAMBU_ACCESS_CODE", "")
 BAMBU_SERIAL      = os.getenv("BAMBU_SERIAL", "")
 BAMBU_CERT        = os.getenv("BAMBU_CERT", "certs/printer.pem")
-BAMBU_FTP_PORT    = int(os.getenv("BAMBU_FTP_PORT", "990"))   # implicit FTPS
-BAMBU_MQTT_PORT   = int(os.getenv("BAMBU_MQTT_PORT", "8883"))
+BAMBU_FTP_PORT    = int(os.getenv("BAMBU_FTP_PORT") or "990")   # implicit FTPS
+BAMBU_MQTT_PORT   = int(os.getenv("BAMBU_MQTT_PORT") or "8883")
 # AMS slot index (0 = first tray of first AMS unit, 1 = second tray, etc.)
 # Set to -1 to disable AMS and print from the external spool holder.
-BAMBU_AMS_SLOT    = int(os.getenv("BAMBU_AMS_SLOT", "0"))
+BAMBU_AMS_SLOT    = int(os.getenv("BAMBU_AMS_SLOT") or "0")
 
 
 class _ImplicitFTP_TLS(ftplib.FTP_TLS):
