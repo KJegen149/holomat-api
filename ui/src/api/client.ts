@@ -460,3 +460,16 @@ export async function saveSettings(settings: Record<string, string>): Promise<{ 
     body: JSON.stringify({ settings }),
   }))
 }
+
+export async function restartService(): Promise<{ restarting: boolean }> {
+  return _checkSettings(await fetch('/api/settings/restart', { method: 'POST' }))
+}
+
+export interface ConnectionTestResult {
+  ok: boolean
+  detail: string
+}
+
+export async function testConnections(): Promise<{ results: Record<string, ConnectionTestResult> }> {
+  return _checkSettings(await fetch('/api/settings/test'))
+}
