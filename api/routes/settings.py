@@ -189,6 +189,8 @@ async def test_connections():
         key = _resolve("CF_API_KEY", env)
         if not url:
             return {"ok": False, "detail": "CF_API_URL not set"}
+        if not url.startswith(("http://", "https://")):
+            url = "https://" + url
         parsed = urlparse(url)
         port = 443 if parsed.scheme == "https" else 80
         tcp = await _tcp(parsed.hostname or "", port)
@@ -205,6 +207,8 @@ async def test_connections():
             return {"ok": False, "detail": "HA_URL not set"}
         if not token:
             return {"ok": False, "detail": "HA_TOKEN not set"}
+        if not url.startswith(("http://", "https://")):
+            url = "https://" + url
         return await _http(f"{url.rstrip('/')}/api/", {"Authorization": f"Bearer {token}"})
 
     async def _ha_mqtt() -> dict:
