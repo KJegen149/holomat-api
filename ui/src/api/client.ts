@@ -123,17 +123,6 @@ export interface LibraryResponse {
   count: number
 }
 
-export interface ManualObjectBody {
-  name: string
-  brand?: string
-  model?: string
-  category?: string
-  width_mm: number
-  depth_mm: number
-  height_mm?: number
-  notes?: string
-}
-
 export interface PatchObjectBody {
   name?: string
   brand?: string
@@ -166,18 +155,6 @@ export async function scanCapture(): Promise<ScanObject> {
 
 export async function fetchLibrary(): Promise<LibraryResponse> {
   return _checkScan(await fetch('/api/scan/library'))
-}
-
-export async function fetchScanObject(id: string): Promise<ScanObject> {
-  return _checkScan(await fetch(`/api/scan/library/${id}`))
-}
-
-export async function addManualObject(body: ManualObjectBody): Promise<ScanObject> {
-  return _checkScan(await fetch('/api/scan/library', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  }))
 }
 
 export async function patchScanObject(id: string, body: PatchObjectBody): Promise<ScanObject> {

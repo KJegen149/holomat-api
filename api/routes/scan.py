@@ -6,7 +6,6 @@ GET    /api/scan/background/status — background capture status
 POST   /api/scan/capture           — capture frame with object, run full pipeline
 GET    /api/scan/library           — list saved objects (max 50, FIFO)
 GET    /api/scan/library/{id}      — get single object record
-POST   /api/scan/library           — manually add object by dimensions
 DELETE /api/scan/library/{id}      — remove object (unless pinned)
 PATCH  /api/scan/library/{id}      — update object (pin/unpin, edit dims/notes)
 POST   /api/scan/generate-case     — generate OpenSCAD case for a library object
@@ -25,17 +24,6 @@ router = APIRouter()
 
 
 # ── Request models ──────────────────────────────────────────────────────────
-
-class ManualObjectBody(BaseModel):
-    name: str
-    brand: Optional[str] = None
-    model: Optional[str] = None
-    category: str = "other"
-    width_mm: float = Field(..., ge=0)
-    depth_mm: float = Field(..., ge=0)
-    height_mm: Optional[float] = Field(None, ge=0)
-    notes: Optional[str] = None
-
 
 class PatchObjectBody(BaseModel):
     name: Optional[str] = None
@@ -103,12 +91,6 @@ async def get_object(object_id: str) -> JSONResponse:
     if entry is None:
         raise HTTPException(status_code=404, detail="Object not found")
     return JSONResponse(entry)
-
-
-@router.post("/library")
-async def add_object(body: ManualObjectBody) -> JSONResponse:
-    entry = scanner.add_manual_object(body.model_dump())
-    return JSONResponse(entry, status_code=201)
 
 
 @router.delete("/library/{object_id}")

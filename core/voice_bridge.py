@@ -441,16 +441,9 @@ class VoiceBridge:
                 blocksize=native_block,
                 device=mic_idx,
             ) as stream:
-                rolling: list[np.ndarray] = []
                 while not self._stop_event.is_set():
                     raw, _ = stream.read(native_block)
                     chunk = _resample(raw.flatten(), native_rate, _MIC_RATE)
-                    rolling.append(chunk)
-
-                    # Rolling 3-second buffer for wake word context
-                    max_frames = 3 * _MIC_RATE // _CHUNK_FRAMES + 1
-                    if len(rolling) > max_frames:
-                        rolling.pop(0)
 
                     predictions = wakemodel.predict(chunk)
                     detected = any(v >= _WAKE_SENSITIVITY for v in predictions.values())
@@ -466,7 +459,6 @@ class VoiceBridge:
                         if audio is not None and audio.size > 0:
                             self._process_command(audio)
 
-                        rolling.clear()
                         self._set_state("idle")
 
         except Exception as exc:

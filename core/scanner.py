@@ -350,24 +350,3 @@ def update_object(object_id: str, updates: dict) -> Optional[dict]:
                 _save_library(lib)
                 return lib[i]
     return None
-
-
-def add_manual_object(data: dict) -> dict:
-    entry = {
-        "id": str(uuid.uuid4()),
-        "captured_at": datetime.now(timezone.utc).isoformat(),
-        "pinned": False,
-        "thumbnail_b64": None,
-        "name": str(data.get("name", "Manual Entry")),
-        "brand": data.get("brand"),
-        "model": data.get("model"),
-        "category": str(data.get("category", "other")),
-        "confidence": 1.0,
-        "width_mm": float(data.get("width_mm", 0)),
-        "depth_mm": float(data.get("depth_mm", 0)),
-        "area_mm2": 0.0,
-        "height_mm": data.get("height_mm"),
-        "notes": data.get("notes"),
-    }
-    _add_to_library(entry)
-    return entry
