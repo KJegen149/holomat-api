@@ -107,7 +107,7 @@ export default function OnScreenKeyboard({ onClose }: Props) {
         <button
           type="button"
           onClick={onClose}
-          className="text-j-muted hover:text-j-err transition-colors p-1"
+          className="text-j-muted hover:text-j-red transition-colors p-1"
         >
           <X size={14} />
         </button>

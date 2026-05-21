@@ -60,7 +60,7 @@ class CameraManager:
 
     async def mjpeg_stream(self):
         """Async generator yielding MJPEG multipart frames as bytes."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         delay = 1.0 / STREAM_FPS
         opened = await loop.run_in_executor(None, self.open)
         if not opened:

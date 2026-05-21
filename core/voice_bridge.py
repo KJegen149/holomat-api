@@ -160,7 +160,7 @@ async def _stt_session(reader: asyncio.StreamReader, writer: asyncio.StreamWrite
                         models=[AsrModel(
                             name="whisper-large-v3-turbo",
                             description="Whisper Large V3 Turbo via Cloudflare / Groq",
-                            attribution=Attribution(name="OpenAI / Groq", url=""),
+                            attribution=Attribution(name="Cloudflare Workers AI", url=""),
                             installed=True,
                             languages=["en"],
                         )],

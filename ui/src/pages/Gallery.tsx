@@ -37,7 +37,7 @@ function SvgModal({ svg, onClose }: { svg: string; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={onClose}>
       <div
-        className="bg-j-surface border border-j-border rounded-lg p-4 max-w-2xl w-full mx-4 shadow-2xl"
+        className="bg-j-surf border border-j-border rounded-lg p-4 max-w-2xl w-full mx-4 shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-3">
@@ -117,7 +117,7 @@ function GalleryCard({
   }
 
   return (
-    <div className="bg-j-surface border border-j-border rounded-lg overflow-hidden flex flex-col group hover:border-j-cyan/40 transition-colors">
+    <div className="bg-j-surf border border-j-border rounded-lg overflow-hidden flex flex-col group hover:border-j-cyan/40 transition-colors">
       {/* Thumbnail */}
       <div className="relative bg-black/30 aspect-square flex items-center justify-center overflow-hidden">
         {!imgError ? (
@@ -211,7 +211,7 @@ function EmptyState() {
           Drop images into the Samba share to auto-ingest them
         </p>
       </div>
-      <div className="mt-2 p-3 rounded border border-j-border bg-j-surface text-left font-mono text-[11px] text-j-muted space-y-1">
+      <div className="mt-2 p-3 rounded border border-j-border bg-j-surf text-left font-mono text-[11px] text-j-muted space-y-1">
         <div className="text-j-cyan mb-1">Windows</div>
         <div>\\KJLC-AI-01\HolomatGallery</div>
         <div className="text-j-cyan mt-2 mb-1">macOS / Linux</div>
@@ -291,7 +291,7 @@ export default function Gallery() {
       </div>
 
       {/* SMB share info banner */}
-      <div className="flex items-start gap-2 px-3 py-2 rounded border border-j-border bg-j-surface text-j-muted text-xs font-mono">
+      <div className="flex items-start gap-2 px-3 py-2 rounded border border-j-border bg-j-surf text-j-muted text-xs font-mono">
         <Info size={13} className="text-j-cyan mt-0.5 shrink-0" />
         <span>
           Drop images into <span className="text-j-text">\\KJLC-AI-01\HolomatGallery</span> (SMB) or{' '}

@@ -139,7 +139,9 @@ async def generate_case_for_object(body: GenerateCaseBody) -> JSONResponse:
     if entry is None:
         raise HTTPException(status_code=404, detail="Object not found in library")
 
-    height_mm = entry.get("height_mm") or 20.0  # sensible fallback if not measured
+    height_mm = entry.get("height_mm")
+    if height_mm is None:
+        height_mm = 20.0  # fallback when height was never measured
 
     from api.routes.generate import _generate_case_openscad
     try:

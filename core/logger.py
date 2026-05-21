@@ -4,35 +4,45 @@ import sys
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
-# Broadcast callable injected by main.py after WS manager is ready
+# Broadcast callable + running event loop — wired by main.py's lifespan via
+# set_broadcast(), which runs inside the loop so the loop can be captured.
 _broadcast: Optional[Callable] = None
+_loop: Optional[asyncio.AbstractEventLoop] = None
 
 
 def set_broadcast(fn: Callable) -> None:
-    global _broadcast
+    global _broadcast, _loop
     _broadcast = fn
+    try:
+        _loop = asyncio.get_running_loop()
+    except RuntimeError:
+        _loop = None
 
 
 class _WebSocketHandler(logging.Handler):
-    """Forwards log records to all connected WebSocket clients."""
+    """Forwards log records to all connected WebSocket clients.
+
+    emit() may be called from any thread (the HA bridge, the print-queue
+    worker and the voice-bridge daemon all log), so the broadcast is
+    marshalled onto the captured event loop with call_soon_threadsafe.
+    """
 
     def emit(self, record: logging.LogRecord) -> None:
-        if _broadcast is None:
+        if _broadcast is None or _loop is None:
             return
+        payload = {
+            "type": "log",
+            "level": record.levelname,
+            "name": record.name,
+            "message": self.format(record),
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.ensure_future(
-                    _broadcast({
-                        "type": "log",
-                        "level": record.levelname,
-                        "name": record.name,
-                        "message": self.format(record),
-                        "ts": datetime.now(timezone.utc).isoformat(),
-                    })
-                )
-        except Exception:
-            pass
+            _loop.call_soon_threadsafe(
+                lambda: asyncio.ensure_future(_broadcast(payload))
+            )
+        except RuntimeError:
+            pass  # event loop already closed (shutdown)
 
 
 def setup_logging() -> None:

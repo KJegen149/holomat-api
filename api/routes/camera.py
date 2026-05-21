@@ -27,7 +27,7 @@ async def camera_status() -> JSONResponse:
 @router.get("/stream")
 async def camera_stream():
     """MJPEG live stream for calibration / scanning preview."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     opened = await loop.run_in_executor(None, camera.open)
     if not opened:
         return JSONResponse({"error": "camera_unavailable"}, status_code=503)

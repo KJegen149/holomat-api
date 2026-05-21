@@ -369,7 +369,7 @@ function AdminPanel() {
                   ? 'border-j-green text-j-green cursor-pointer'
                   : restartState === 'timeout'
                   ? 'border-j-amber text-j-amber cursor-pointer'
-                  : 'border-j-err/60 text-j-err hover:bg-j-err/10 cursor-pointer'
+                  : 'border-j-red/60 text-j-red hover:bg-j-red/10 cursor-pointer'
                 }`}
             >
               {restartState === 'restarting'
@@ -420,7 +420,7 @@ function AdminPanel() {
         </div>
         <div className="px-5 py-4 bg-j-bg">
           {testError && (
-            <p className="font-mono text-[11px] text-j-err mb-3">{testError}</p>
+            <p className="font-mono text-[11px] text-j-red mb-3">{testError}</p>
           )}
           {!testResults && !testing && (
             <p className="font-mono text-[10px] text-j-cdim">
@@ -433,14 +433,14 @@ function AdminPanel() {
                 <div key={key} className="flex items-start gap-3">
                   <Circle
                     size={8}
-                    className={`flex-shrink-0 mt-0.5 fill-current ${result.ok ? 'text-j-green' : 'text-j-err'}`}
+                    className={`flex-shrink-0 mt-0.5 fill-current ${result.ok ? 'text-j-green' : 'text-j-red'}`}
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3">
                       <span className="font-mono text-[10px] text-j-text tracking-[0.05em] w-36 flex-shrink-0">
                         {TEST_LABELS[key] ?? key}
                       </span>
-                      <span className={`font-mono text-[10px] ${result.ok ? 'text-j-green' : 'text-j-err'}`}>
+                      <span className={`font-mono text-[10px] ${result.ok ? 'text-j-green' : 'text-j-red'}`}>
                         {result.ok ? 'OK' : 'FAIL'}
                       </span>
                     </div>
@@ -483,7 +483,7 @@ function AdminPanel() {
         </div>
         <div className="px-5 py-4 bg-j-bg">
           {dryRunError && (
-            <p className="font-mono text-[11px] text-j-err mb-3">{dryRunError}</p>
+            <p className="font-mono text-[11px] text-j-red mb-3">{dryRunError}</p>
           )}
           {!dryRunResults && !dryRunning && (
             <p className="font-mono text-[10px] text-j-cdim">
@@ -496,7 +496,7 @@ function AdminPanel() {
                 <div key={key} className="flex items-start gap-3">
                   <Circle
                     size={8}
-                    className={`flex-shrink-0 mt-0.5 fill-current ${result.ok ? 'text-j-green' : 'text-j-err'}`}
+                    className={`flex-shrink-0 mt-0.5 fill-current ${result.ok ? 'text-j-green' : 'text-j-red'}`}
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3">
@@ -505,7 +505,7 @@ function AdminPanel() {
                          key === 'cloud_auth'  ? 'Cloud Auth'      :
                          key === 'mqtt_status' ? 'MQTT Status Poll' : key}
                       </span>
-                      <span className={`font-mono text-[10px] ${result.ok ? 'text-j-green' : 'text-j-err'}`}>
+                      <span className={`font-mono text-[10px] ${result.ok ? 'text-j-green' : 'text-j-red'}`}>
                         {result.ok ? 'OK' : 'FAIL'}
                       </span>
                     </div>
@@ -548,7 +548,7 @@ function AdminPanel() {
         </div>
         <div className="px-5 py-4 bg-j-bg">
           {meshyError && (
-            <p className="font-mono text-[11px] text-j-err mb-3">{meshyError}</p>
+            <p className="font-mono text-[11px] text-j-red mb-3">{meshyError}</p>
           )}
           {!meshyResult && !meshyTesting && (
             <p className="font-mono text-[10px] text-j-cdim">
@@ -559,10 +559,10 @@ function AdminPanel() {
             <div className="flex items-start gap-3">
               <Circle
                 size={8}
-                className={`flex-shrink-0 mt-0.5 fill-current ${meshyResult.ok ? 'text-j-green' : 'text-j-err'}`}
+                className={`flex-shrink-0 mt-0.5 fill-current ${meshyResult.ok ? 'text-j-green' : 'text-j-red'}`}
               />
               <div>
-                <span className={`font-mono text-[10px] ${meshyResult.ok ? 'text-j-green' : 'text-j-err'}`}>
+                <span className={`font-mono text-[10px] ${meshyResult.ok ? 'text-j-green' : 'text-j-red'}`}>
                   {meshyResult.ok ? 'OK' : 'FAIL'}
                 </span>
                 <p className="font-mono text-[9px] text-j-cdim mt-0.5 break-all">{meshyResult.detail}</p>
@@ -636,7 +636,7 @@ function BambuOtpPanel() {
           </button>
         </div>
         {result && (
-          <p className={`font-mono text-[10px] ${result.ok ? 'text-j-green' : 'text-j-err'}`}>
+          <p className={`font-mono text-[10px] ${result.ok ? 'text-j-green' : 'text-j-red'}`}>
             {result.ok ? '✓ ' : '✗ '}{result.detail}
           </p>
         )}
@@ -780,8 +780,8 @@ export default function Settings() {
       {/* Right panel — active section form */}
       <div className="flex-1 overflow-y-auto p-6">
         {error && (
-          <div className="mb-4 border border-j-err/40 bg-j-err/5 rounded-sm px-4 py-3">
-            <p className="text-j-err font-mono text-[11px]">{error}</p>
+          <div className="mb-4 border border-j-red/40 bg-j-red/5 rounded-sm px-4 py-3">
+            <p className="text-j-red font-mono text-[11px]">{error}</p>
           </div>
         )}
 

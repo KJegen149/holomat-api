@@ -16,6 +16,7 @@ import asyncio
 import base64
 import json
 import os
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +37,9 @@ OBJECT_LIBRARY_MAX = 50
 _DIFF_THRESHOLD = int(os.getenv("SCAN_DIFF_THRESHOLD") or "30")
 _MIN_CONTOUR_AREA_PX = int(os.getenv("SCAN_MIN_CONTOUR_AREA") or "500")
 
+# Guards every read-modify-write of library.json
+_LIB_LOCK = threading.Lock()
+
 
 def _ensure_dir() -> None:
     SCAN_DIR.mkdir(parents=True, exist_ok=True)
@@ -50,23 +54,34 @@ def _load_library() -> list[dict]:
         return json.loads(LIBRARY_FILE.read_text())
     except Exception as e:
         log.error("Failed to load object library: %s", e)
+        # Preserve the unreadable file so its data is not lost on the next save
+        try:
+            backup = LIBRARY_FILE.with_name(LIBRARY_FILE.name + ".corrupt")
+            LIBRARY_FILE.replace(backup)
+            log.error("Corrupt library backed up to %s", backup.name)
+        except Exception:
+            pass
         return []
 
 
 def _save_library(lib: list[dict]) -> None:
+    """Atomic write — a crash mid-write cannot corrupt library.json."""
     _ensure_dir()
-    LIBRARY_FILE.write_text(json.dumps(lib, indent=2))
+    tmp = LIBRARY_FILE.with_name(LIBRARY_FILE.name + ".tmp")
+    tmp.write_text(json.dumps(lib, indent=2))
+    tmp.replace(LIBRARY_FILE)
 
 
 def _add_to_library(entry: dict) -> None:
-    lib = _load_library()
-    lib.append(entry)
-    if len(lib) > OBJECT_LIBRARY_MAX:
-        unpinned = [i for i, e in enumerate(lib) if not e.get("pinned", False)]
-        if unpinned:
-            lib.pop(unpinned[0])
-            log.info("Library full — evicted oldest unpinned entry")
-    _save_library(lib)
+    with _LIB_LOCK:
+        lib = _load_library()
+        lib.append(entry)
+        if len(lib) > OBJECT_LIBRARY_MAX:
+            unpinned = [i for i, e in enumerate(lib) if not e.get("pinned", False)]
+            if unpinned:
+                lib.pop(unpinned[0])
+                log.info("Library full — evicted oldest unpinned entry")
+        _save_library(lib)
 
 
 # ── Background management ───────────────────────────────────────────────────
@@ -167,7 +182,7 @@ async def scan_object(background_frame: Optional[np.ndarray] = None) -> dict:
 
     dims = estimate_dimensions(contour, homography)
 
-    # Encode full undistorted frame for GPT-4o
+    # Encode full undistorted frame for Gemini Vision
     _, jpeg_buf = cv2.imencode(".jpg", undistorted, [cv2.IMWRITE_JPEG_QUALITY, 85])
 
     identity = await identify_image(jpeg_buf.tobytes())
@@ -309,29 +324,31 @@ def get_object(object_id: str) -> Optional[dict]:
 
 
 def delete_object(object_id: str) -> bool:
-    lib = _load_library()
-    entry = next((e for e in lib if e["id"] == object_id), None)
-    if entry is None:
-        return False
-    if entry.get("pinned", False):
-        raise ValueError("Cannot delete a pinned object — unpin it first")
-    lib = [e for e in lib if e["id"] != object_id]
-    _save_library(lib)
-    return True
+    with _LIB_LOCK:
+        lib = _load_library()
+        entry = next((e for e in lib if e["id"] == object_id), None)
+        if entry is None:
+            return False
+        if entry.get("pinned", False):
+            raise ValueError("Cannot delete a pinned object — unpin it first")
+        lib = [e for e in lib if e["id"] != object_id]
+        _save_library(lib)
+        return True
 
 
 _PATCH_ALLOWED = {"pinned", "name", "brand", "model", "category", "height_mm", "notes"}
 
 
 def update_object(object_id: str, updates: dict) -> Optional[dict]:
-    lib = _load_library()
-    for i, entry in enumerate(lib):
-        if entry["id"] == object_id:
-            for k, v in updates.items():
-                if k in _PATCH_ALLOWED:
-                    lib[i][k] = v
-            _save_library(lib)
-            return lib[i]
+    with _LIB_LOCK:
+        lib = _load_library()
+        for i, entry in enumerate(lib):
+            if entry["id"] == object_id:
+                for k, v in updates.items():
+                    if k in _PATCH_ALLOWED:
+                        lib[i][k] = v
+                _save_library(lib)
+                return lib[i]
     return None
 
 
