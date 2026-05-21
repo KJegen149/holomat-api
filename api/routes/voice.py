@@ -1,4 +1,4 @@
-"""Voice bridge API routes — Phase 8."""
+"""Voice bridge API routes."""
 from fastapi import APIRouter, HTTPException
 
 router = APIRouter(tags=["voice"])

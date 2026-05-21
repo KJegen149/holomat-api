@@ -1,7 +1,6 @@
 export interface HealthResponse {
   status: string
   version: string
-  phase: string
   timestamp: string
   system: {
     platform: string
@@ -205,7 +204,7 @@ export async function generateCase(objectId: string, paddingMm = 2, wallMm = 2):
   }))
 }
 
-// ── Gallery API (Phase 6) ────────────────────────────────────────────────────
+// ── Gallery API────────────────────────────────────────────────────
 
 export interface GalleryItem {
   id: string
@@ -264,7 +263,7 @@ export async function galleryGenerateSvg(id: string): Promise<GenerateSvgResult>
   return _checkGallery(await fetch(`/api/gallery/${id}/generate-svg`, { method: 'POST' }))
 }
 
-// ── Generate API (Phase 5) ───────────────────────────────────────────────────
+// ── Generate API───────────────────────────────────────────────────
 
 export interface StlResult {
   name: string
@@ -281,7 +280,7 @@ export async function compileOpenscad(scadCode: string, name: string): Promise<S
   }))
 }
 
-// ── Print Queue API (Phase 7) ─────────────────────────────────────────────────
+// ── Print Queue API─────────────────────────────────────────────────
 
 export interface PrinterStatus {
   state?: string
@@ -384,7 +383,7 @@ export async function deletePrintProfile(profileId: string): Promise<{ deleted: 
   return _checkPrint(await fetch(`/api/print/profiles/${profileId}`, { method: 'DELETE' }))
 }
 
-// ── Voice Bridge API (Phase 8) ───────────────────────────────────────────────
+// ── Voice Bridge API───────────────────────────────────────────────
 
 export interface VoiceStatus {
   running: boolean
@@ -434,7 +433,7 @@ export async function clearVoiceHistory(): Promise<{ cleared: boolean }> {
   return _checkVoice(await fetch('/api/voice/history', { method: 'DELETE' }))
 }
 
-// ── Settings API (Phase 9) ───────────────────────────────────────────────────
+// ── Settings API───────────────────────────────────────────────────
 
 export interface SettingsResponse {
   settings: Record<string, string>

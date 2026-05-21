@@ -113,7 +113,6 @@ export default function Voice() {
               Voice Bridge
             </span>
           </div>
-          <span className="text-j-muted font-mono text-[10px] tracking-[0.1em]">Phase 8</span>
         </div>
 
         {/* Status indicator */}

@@ -1,4 +1,4 @@
-"""Settings API routes — Phase 9."""
+"""Settings API routes."""
 import asyncio
 import os
 import socket

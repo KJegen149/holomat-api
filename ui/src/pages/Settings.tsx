@@ -740,7 +740,6 @@ export default function Settings() {
             <SettingsIcon size={14} className="text-j-cyan" strokeWidth={1.5} />
             <span className="text-j-cyan font-mono text-[11px] tracking-[0.2em] uppercase">Settings</span>
           </div>
-          <span className="text-j-muted font-mono text-[10px] tracking-[0.1em]">Phase 9</span>
         </div>
 
         <nav className="py-2 flex-1">

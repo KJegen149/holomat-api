@@ -1,5 +1,5 @@
 """
-Object scanning routes. Phase 4.
+Object scanning routes.
 
 POST   /api/scan/background        — capture empty-mat background frame
 GET    /api/scan/background/status — background capture status
@@ -131,7 +131,7 @@ async def update_object(object_id: str, body: PatchObjectBody) -> JSONResponse:
     return JSONResponse(entry)
 
 
-# ── Generate case (Phase 4F) ────────────────────────────────────────────────
+# ── Generate case ───────────────────────────────────────────────────────────
 
 @router.post("/generate-case")
 async def generate_case_for_object(body: GenerateCaseBody) -> JSONResponse:

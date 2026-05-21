@@ -1,6 +1,5 @@
 """
 Camera management — OpenCV device lifecycle, MJPEG streaming.
-Implemented in Phase 1 (calibration) and Phase 4 (scanning).
 """
 import asyncio
 import os

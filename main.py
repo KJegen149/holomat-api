@@ -1,19 +1,6 @@
 """
-Holomat API  v0.9.0
-JARVIS Holomat — smart fabrication surface
-Runs on KJLC-AI-01, port 8100
-
-Phase structure:
-  Phase 0  — bootstrap (this file)
-  Phase 1  — calibration engine
-  Phase 2  — UI shell (React/Vite, replaces ui/index.html placeholder)
-  Phase 3  — Home Assistant embedding (MQTT discovery + HA dashboard iframe)
-  Phase 4  — object scanning pipeline
-  Phase 5  — OpenSCAD → STL compilation
-  Phase 6  — gallery / SMB watcher
-  Phase 7  — print queue (Bambu P1S)
-  Phase 8  — voice bridge / HA satellite
-  Phase 9  — settings UI ← current
+Holomat API — JARVIS Holomat, a smart fabrication surface.
+Runs on KJLC-AI-01, port 8100.
 """
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -27,6 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from core.logger import get_logger, set_broadcast, setup_logging
+from core.version import VERSION
 from api.websocket import manager as ws_manager, router as ws_router
 from api.routes.system import router as system_router
 from api.routes.camera import router as camera_router
@@ -43,17 +31,17 @@ setup_logging()
 log = get_logger(__name__)
 
 BASE_DIR = Path(__file__).parent
-UI_DIST = BASE_DIR / "ui" / "dist"          # Phase 2+: built React app
-UI_PLACEHOLDER = BASE_DIR / "ui" / "index.html"  # Phase 0-1: boot placeholder
+UI_DIST = BASE_DIR / "ui" / "dist"          # built React app
+UI_PLACEHOLDER = BASE_DIR / "ui" / "index.html"  # boot placeholder
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Wire logger → WebSocket so all log lines stream to the Console app
     set_broadcast(ws_manager.broadcast)
-    log.info("━━━ Holomat v0.9.0 starting — Phase 9 ━━━")
+    log.info("━━━ Holomat v%s starting ━━━", VERSION)
 
-    # HA MQTT bridge (Phase 3)
+    # HA MQTT bridge
     try:
         from core.ha_bridge import ha_bridge
         ha_bridge.start()
@@ -62,16 +50,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.warning("HA bridge failed to start: %s", e)
 
-    # SMB watcher (Phase 6)
+    # SMB watcher
     try:
         from core.smb_watcher import watcher
         watcher.start()
     except NotImplementedError:
-        log.info("SMB watcher pending (Phase 6)")
+        log.info("SMB watcher pending")
     except Exception as e:
         log.warning("SMB watcher failed to start: %s", e)
 
-    # Print queue worker (Phase 7)
+    # Print queue worker
     try:
         from core.print_queue import print_queue
         print_queue.set_broadcast(ws_manager.broadcast)
@@ -79,13 +67,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.warning("Print queue failed to start: %s", e)
 
-    # Voice bridge (Phase 8)
+    # Voice bridge
     try:
         from core.voice_bridge import voice_bridge
         voice_bridge.set_broadcast(ws_manager.broadcast)
         voice_bridge.start()
     except NotImplementedError:
-        log.info("Voice bridge pending (Phase 8) — set WYOMING_ENABLED=true to activate")
+        log.info("Voice bridge pending — set WYOMING_ENABLED=true to activate")
     except Exception as e:
         log.warning("Voice bridge failed to start: %s", e)
 
@@ -117,7 +105,7 @@ async def lifespan(app: FastAPI):
 # ── App ────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Holomat API",
-    version="0.9.0",
+    version=VERSION,
     description="JARVIS Holomat — smart fabrication surface",
     lifespan=lifespan,
     docs_url="/api/docs",
@@ -146,8 +134,8 @@ app.include_router(settings_router,    prefix="/api/settings")
 
 
 # ── Static UI serving ──────────────────────────────────────────────────────
-# Phase 2+: serve the built React/Vite app from ui/dist/
-# Phase 0-1: serve the placeholder ui/index.html
+# serve the built React/Vite app from ui/dist/
+# falls back to the placeholder ui/index.html
 if UI_DIST.exists():
     _assets = UI_DIST / "assets"
     if _assets.exists():
@@ -170,10 +158,9 @@ else:
 # ── Global exception handlers ──────────────────────────────────────────────
 @app.exception_handler(NotImplementedError)
 async def not_implemented(request: Request, exc: NotImplementedError) -> JSONResponse:
-    phase = str(exc) if str(exc) else "a future phase"
     return JSONResponse(
         status_code=501,
-        content={"error": "not_implemented", "detail": f"Implemented in {phase}"},
+        content={"error": "not_implemented", "detail": str(exc) or "Feature not available"},
     )
 
 

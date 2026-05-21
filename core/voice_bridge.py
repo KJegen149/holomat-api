@@ -1,5 +1,5 @@
 """
-JARVIS voice bridge — Phase 8.
+JARVIS voice bridge.
 
 Runs two Wyoming protocol TCP servers as asyncio tasks on the shared uvicorn
 event loop, and a standalone "Hey Jarvis" voice loop in a daemon thread:
@@ -306,7 +306,7 @@ class VoiceBridge:
 
     def start(self) -> None:
         if not _ENABLED:
-            raise NotImplementedError("Phase 8 — set WYOMING_ENABLED=true to activate voice bridge")
+            raise NotImplementedError("Voice bridge requires WYOMING_ENABLED=true")
 
         self._loop = asyncio.get_running_loop()
         self._stop_event.clear()
