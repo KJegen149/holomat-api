@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Settings as SettingsIcon, Save, Loader2, RotateCcw, CheckCircle, Power, Zap, Circle } from 'lucide-react'
-import { fetchSettings, saveSettings, restartService, testConnections, bambuDryRun, bambuCloudAuth, meshyTest, fetchHealth, type ConnectionTestResult } from '../api/client'
+import { Settings as SettingsIcon, Save, Loader2, RotateCcw, CheckCircle, Power, Zap, Circle, Lock } from 'lucide-react'
+import { fetchSettings, saveSettings, restartService, testConnections, bambuDryRun, bambuCloudAuth, meshyTest, fetchHealth, setAdminKey, AdminAuthError, type ConnectionTestResult } from '../api/client'
 
 // ── Field & section definitions ─────────────────────────────────────────────
 
@@ -647,6 +647,44 @@ function BambuOtpPanel() {
 
 // ── Main Settings page ───────────────────────────────────────────────────────
 
+function AdminKeyGate({ onUnlock }: { onUnlock: () => void }) {
+  const [key, setKey] = useState('')
+  return (
+    <div className="flex flex-col items-center justify-center h-full gap-5 p-10">
+      <Lock size={32} className="text-j-amber" strokeWidth={1.5} />
+      <div className="text-center">
+        <h2 className="text-j-amber font-sans font-bold text-[13px] tracking-[0.2em] uppercase mb-1">
+          Admin Key Required
+        </h2>
+        <p className="text-j-muted font-mono text-[10px] tracking-[0.05em]">
+          The Settings API is protected — enter the HOLOMAT_ADMIN_KEY value.
+        </p>
+      </div>
+      <form
+        onSubmit={(e) => { e.preventDefault(); if (key) { setAdminKey(key); onUnlock() } }}
+        className="flex flex-col gap-3 w-72"
+      >
+        <input
+          type="password"
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          placeholder="Admin key"
+          autoFocus
+          className="bg-j-bg border border-j-border rounded-sm px-3 py-2 text-j-text font-mono text-[12px] focus:border-j-cyan outline-none"
+        />
+        <button
+          type="submit"
+          disabled={!key}
+          className="bg-j-cyan/10 border border-j-cyan text-j-cyan font-mono text-[11px] tracking-[0.15em] uppercase py-2 rounded-sm hover:bg-j-cyan/20 disabled:opacity-40 transition-colors"
+        >
+          Unlock
+        </button>
+      </form>
+    </div>
+  )
+}
+
+
 export default function Settings() {
   const [serverValues, setServerValues] = useState<Record<string, string>>({})
   const [formValues, setFormValues]     = useState<Record<string, string>>({})
@@ -656,11 +694,14 @@ export default function Settings() {
   const [savedSection, setSavedSection] = useState<string | null>(null)
   const [restartRequired, setRestartRequired] = useState(false)
   const [activeSection, setActiveSection]     = useState(SECTIONS[0].id)
+  const [needsKey, setNeedsKey]               = useState(false)
+  const [authEnabled, setAuthEnabled]         = useState(true)
 
   const load = useCallback(async (isInitial = false) => {
     try {
       const res = await fetchSettings()
       setServerValues(res.settings)
+      setAuthEnabled(res.auth_enabled)
       if (isInitial) {
         const initial: Record<string, string> = {}
         for (const [key, val] of Object.entries(res.settings)) {
@@ -670,7 +711,8 @@ export default function Settings() {
       }
       setError(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load settings')
+      if (e instanceof AdminAuthError) setNeedsKey(true)
+      else setError(e instanceof Error ? e.message : 'Failed to load settings')
     } finally {
       setLoading(false)
     }
@@ -715,13 +757,18 @@ export default function Settings() {
       })
       setTimeout(() => setSavedSection(null), 3000)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Save failed')
+      if (e instanceof AdminAuthError) setNeedsKey(true)
+      else setError(e instanceof Error ? e.message : 'Save failed')
     } finally {
       setSaving(false)
     }
   }, [formValues, load])
 
   const currentSection = SECTIONS.find(s => s.id === activeSection) ?? SECTIONS[0]
+
+  if (needsKey) {
+    return <AdminKeyGate onUnlock={() => { setNeedsKey(false); setLoading(true); load(true) }} />
+  }
 
   if (loading) {
     return (
@@ -779,6 +826,13 @@ export default function Settings() {
 
       {/* Right panel — active section form */}
       <div className="flex-1 overflow-y-auto p-6">
+        {!authEnabled && (
+          <div className="mb-4 border border-j-amber/40 bg-j-amber/5 rounded-sm px-4 py-3">
+            <p className="text-j-amber font-mono text-[11px]">
+              Settings API is unprotected — set HOLOMAT_ADMIN_KEY to require an admin key.
+            </p>
+          </div>
+        )}
         {error && (
           <div className="mb-4 border border-j-red/40 bg-j-red/5 rounded-sm px-4 py-3">
             <p className="text-j-red font-mono text-[11px]">{error}</p>

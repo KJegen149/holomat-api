@@ -415,9 +415,30 @@ export async function clearVoiceHistory(): Promise<{ cleared: boolean }> {
 export interface SettingsResponse {
   settings: Record<string, string>
   env_file_exists: boolean
+  auth_enabled: boolean
+}
+
+const ADMIN_KEY_STORAGE = 'holomat_admin_key'
+
+/** Thrown when the Settings API rejects the admin key (HTTP 401). */
+export class AdminAuthError extends Error {
+  constructor() {
+    super('Admin key required')
+    this.name = 'AdminAuthError'
+  }
+}
+
+export function setAdminKey(key: string): void {
+  localStorage.setItem(ADMIN_KEY_STORAGE, key)
+}
+
+function _adminHeaders(): Record<string, string> {
+  const k = localStorage.getItem(ADMIN_KEY_STORAGE)
+  return k ? { 'X-Admin-Key': k } : {}
 }
 
 async function _checkSettings<T>(r: Response): Promise<T> {
+  if (r.status === 401) throw new AdminAuthError()
   if (!r.ok) {
     const body = await r.json().catch(() => ({})) as { detail?: string; error?: string }
     throw new Error(body.detail ?? body.error ?? `HTTP ${r.status}`)
@@ -426,19 +447,19 @@ async function _checkSettings<T>(r: Response): Promise<T> {
 }
 
 export async function fetchSettings(): Promise<SettingsResponse> {
-  return _checkSettings(await fetch('/api/settings'))
+  return _checkSettings(await fetch('/api/settings', { headers: _adminHeaders() }))
 }
 
 export async function saveSettings(settings: Record<string, string>): Promise<{ saved: boolean; restart_required: boolean }> {
   return _checkSettings(await fetch('/api/settings', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ..._adminHeaders() },
     body: JSON.stringify({ settings }),
   }))
 }
 
 export async function restartService(): Promise<{ restarting: boolean }> {
-  return _checkSettings(await fetch('/api/settings/restart', { method: 'POST' }))
+  return _checkSettings(await fetch('/api/settings/restart', { method: 'POST', headers: _adminHeaders() }))
 }
 
 export interface ConnectionTestResult {
@@ -447,21 +468,21 @@ export interface ConnectionTestResult {
 }
 
 export async function testConnections(): Promise<{ results: Record<string, ConnectionTestResult> }> {
-  return _checkSettings(await fetch('/api/settings/test'))
+  return _checkSettings(await fetch('/api/settings/test', { headers: _adminHeaders() }))
 }
 
 export async function bambuDryRun(): Promise<{ results: Record<string, ConnectionTestResult> }> {
-  return _checkSettings(await fetch('/api/settings/test/bambu'))
+  return _checkSettings(await fetch('/api/settings/test/bambu', { headers: _adminHeaders() }))
 }
 
 export async function meshyTest(): Promise<ConnectionTestResult> {
-  return _checkSettings(await fetch('/api/settings/test/meshy'))
+  return _checkSettings(await fetch('/api/settings/test/meshy', { headers: _adminHeaders() }))
 }
 
 export async function bambuCloudAuth(otp: string): Promise<{ ok: boolean; user_id: string; detail: string }> {
   return _checkSettings(await fetch('/api/settings/bambu-auth', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ..._adminHeaders() },
     body: JSON.stringify({ otp }),
   }))
 }
