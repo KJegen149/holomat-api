@@ -1,5 +1,5 @@
 [Unit]
-Description=Holomat API Server (JARVIS) v0.9.0 — Phase 9
+Description=Holomat API Server (JARVIS)
 After=network-online.target smbd.service
 Wants=network-online.target
 
@@ -12,29 +12,21 @@ ExecStart=/home/jarvis/holomat-api/venv/bin/uvicorn main:app --host 0.0.0.0 --po
 Restart=on-failure
 RestartSec=5
 
-# ── Non-sensitive config ───────────────────────────────────────────────────
+# ── Generic defaults (override via .env or a systemd drop-in) ───────────────
 Environment=ORCA_CLI=/usr/bin/orca-slicer
 Environment=OPENSCAD_BIN=openscad
 Environment=CAMERA_DEVICE=0
-Environment=CF_API_URL=https://jarvis-api.kjeg.workers.dev
-Environment=HA_URL=https://ha.nannerserver.com
 Environment=HA_MQTT_PORT=1883
-Environment=HA_MQTT_USER=Jarvis_Holomat
-Environment=BAMBU_SERIAL=01P00C5C0701414
-Environment=BAMBU_IP=10.11.12.91
 Environment=BAMBU_REGION=global
 
-# ── Secrets: set via Settings UI (Phase 9) → saved to .env ───────────────
-# Open http://KJLC-AI-01:8100/settings and use the credential forms.
-# The .env file takes priority over the Environment= lines above (override=True).
-# Alternatively: sudo systemctl edit holomat-api → add under [Service]:
-#   Environment=GEMINI_API_KEY=your_key
-#   Environment=CF_API_KEY=your_key
-#   Environment=BAMBU_ACCESS_CODE=your_code
-#   Environment=BAMBU_EMAIL=your@email.com
-#   Environment=BAMBU_PASSWORD=your_password
-#   Environment=HA_MQTT_PASS=your_password
-#   Environment=HA_TOKEN=your_token
+# ── Host-specific config & secrets — NOT committed ──────────────────────────
+# Configure via the Settings UI (http://<host>:8100/settings → saved to .env),
+# or a systemd drop-in:  sudo systemctl edit holomat-api
+# The .env file takes priority over Environment= lines (override=True).
+# Keys to set:
+#   GEMINI_API_KEY, CF_API_URL, CF_API_KEY
+#   BAMBU_SERIAL, BAMBU_IP, BAMBU_ACCESS_CODE, BAMBU_EMAIL, BAMBU_PASSWORD
+#   HA_URL, HA_MQTT_HOST, HA_MQTT_USER, HA_MQTT_PASS, HA_TOKEN
 
 [Install]
 WantedBy=multi-user.target

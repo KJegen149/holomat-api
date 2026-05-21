@@ -170,7 +170,7 @@ items until you choose.
 
 ### H9 — `HomeAssistant.tsx` hard-codes the private HA hostname in shipped UI
 - **File:** `ui/src/pages/HomeAssistant.tsx:35`
-- **What:** The "not configured" help text hard-codes the real `HA_URL=https://ha.nannerserver.com`. Every other page uses the neutral `https://ha.example.com`.
+- **What:** The "not configured" help text hard-codes a real private HA hostname. Every other page uses the neutral `https://ha.example.com`.
 - **Why:** Leaks a real internal hostname into shipped UI source and the rendered DOM.
 - **Impact if left:** Infrastructure disclosure.
 - **Fix:** Change to `https://ha.example.com` (matches `Settings.tsx:55`).

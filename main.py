@@ -1,7 +1,7 @@
 """
 Holomat API  v0.9.0
 JARVIS Holomat — smart fabrication surface
-Runs on KJLC-AI-01 (10.11.12.129), port 8100
+Runs on KJLC-AI-01, port 8100
 
 Phase structure:
   Phase 0  — bootstrap (this file)
