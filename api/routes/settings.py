@@ -68,7 +68,7 @@ def _read_env() -> dict[str, str]:
             continue
         if "=" in line:
             key, _, val = line.partition("=")
-            result[key.strip()] = val.strip()
+            result[key.strip()] = val.strip().strip("\"'")
     return result
 
 
@@ -240,10 +240,8 @@ async def test_connections():
 
 @router.get("/test/meshy")
 async def test_meshy():
-    """
-    Probe the Meshy API via the Cloudflare worker.
-    Uses a dummy task-id: 404 from Meshy = key valid; 401/403 = key rejected.
-    """
+    """Probe the Meshy API via the Cloudflare worker."""
+    import httpx
     env = _read_env()
     cf_url = _resolve("CF_API_URL", env).rstrip("/")
     cf_key = _resolve("CF_API_KEY", env)
@@ -253,26 +251,15 @@ async def test_meshy():
     if not cf_key:
         return {"ok": False, "detail": "CF_API_KEY not set — cannot authenticate with Meshy"}
 
-    # /api/meshy/balance authenticates with CF_API_KEY then calls Meshy with the
-    # worker's own MESHY_API_KEY secret — confirms both keys end-to-end.
     probe_url = f"{cf_url}/api/meshy/balance"
     try:
-        loop = asyncio.get_running_loop()
-        def _do():
-            req = urllib_req.Request(probe_url, headers={"X-API-Key": cf_key})
-            try:
-                with urllib_req.urlopen(req, timeout=10) as r:
-                    import json as _json
-                    body = _json.loads(r.read(2048).decode(errors="replace"))
-                    return r.status, body
-            except urllib_err.HTTPError as e:
-                body_str = e.read(512).decode(errors="replace")
-                try:
-                    import json as _json
-                    return e.code, _json.loads(body_str)
-                except Exception:
-                    return e.code, {}
-        status, body = await loop.run_in_executor(None, _do)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(probe_url, headers={"X-API-Key": cf_key})
+        status = r.status_code
+        try:
+            body = r.json()
+        except Exception:
+            body = {}
         if status in (401, 403):
             return {"ok": False, "detail": f"HTTP {status} — CF_API_KEY rejected by worker"}
         if status == 500 and "not configured" in str(body.get("error", "")):
