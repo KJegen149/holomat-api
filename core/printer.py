@@ -158,21 +158,55 @@ def _cloud_send_and_print(path_3mf: str) -> dict:
     """
     Upload the 3MF to Bambu Cloud and start the print via the cloud API.
 
-    Uses the bambulab cloud client's own upload_file + start_cloud_print —
-    the library handles the S3 transfer, the cloud dispatch and the command
-    signing. get_print_status then confirms the printer picked up the job.
+    The library's upload_file PUTs to Bambu's S3 but doesn't always register
+    the file as a "project" right away — start_cloud_print searches the project
+    index by name and 404s when the record hasn't been written yet. We poll
+    the index after upload; if the record never appears we fall back to
+    start_print_job with the upload URL directly.
     """
     client = _get_bambu_client()
-    # Upload under a unique name so start_cloud_print's search-by-name is unambiguous.
     cloud_name = f"{Path(path_3mf).stem}_{int(time.time())}.3mf"
 
     log.info("Cloud: uploading %s as %s", Path(path_3mf).name, cloud_name)
     upload = client.upload_file(path_3mf, filename=cloud_name)
     log.info("Cloud: upload OK — %s", json.dumps(upload, default=str))
 
-    log.info("Cloud: starting print on device %s", BAMBU_SERIAL)
-    job = client.start_cloud_print(device_id=BAMBU_SERIAL, filename=cloud_name)
-    log.info("Cloud: start_cloud_print response — %s", json.dumps(job, default=str))
+    target = None
+    for attempt in range(1, 11):
+        time.sleep(2)
+        try:
+            files = client.get_cloud_files()
+        except Exception as e:
+            log.warning("Cloud: get_cloud_files failed (try %d/10): %s", attempt, e)
+            continue
+        log.info("Cloud: project index has %d entries (try %d/10)", len(files), attempt)
+        for f in files:
+            for k in ("name", "file_name", "title"):
+                if f.get(k) == cloud_name:
+                    target = f
+                    break
+            if target:
+                break
+        if target:
+            break
+
+    if target:
+        log.info("Cloud: upload registered — %s", json.dumps(target, default=str))
+        log.info("Cloud: starting print on device %s", BAMBU_SERIAL)
+        job = client.start_cloud_print(device_id=BAMBU_SERIAL, filename=cloud_name)
+    else:
+        upload_url = upload.get("upload_url") or ""
+        log.warning(
+            "Cloud: upload not visible in project index after 20s — "
+            "falling back to direct start_print_job with the upload URL"
+        )
+        job = client.start_print_job(
+            device_id=BAMBU_SERIAL,
+            file_url=upload_url,
+            file_name=cloud_name,
+        )
+
+    log.info("Cloud: print job response — %s", json.dumps(job, default=str))
 
     try:
         time.sleep(3)
