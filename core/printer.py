@@ -156,139 +156,32 @@ def _get_bambu_client():
 
 def _cloud_send_and_print(path_3mf: str) -> dict:
     """
-    Upload 3MF to Bambu cloud S3, then dispatch via cloud MQTT.
+    Upload the 3MF to Bambu Cloud and start the print via the cloud API.
 
-    Cloud MQTT (us.mqtt.bambulab.com) relays the project_file command through
-    Bambu's trusted infrastructure, which auto-starts the print on the printer
-    without requiring touchscreen confirmation.
+    Uses the bambulab cloud client's own upload_file + start_cloud_print —
+    the library handles the S3 transfer, the cloud dispatch and the command
+    signing. get_print_status then confirms the printer picked up the job.
     """
-    import requests as _requests
-    import paho.mqtt.client as mqtt  # type: ignore
     client = _get_bambu_client()
-    filename = Path(path_3mf).name
+    # Upload under a unique name so start_cloud_print's search-by-name is unambiguous.
+    cloud_name = f"{Path(path_3mf).stem}_{int(time.time())}.3mf"
 
-    # ── Step 1: Upload to S3 ─────────────────────────────────────────────────
-    file_size = Path(path_3mf).stat().st_size
-    log.info("Cloud: requesting upload URL for %s (%d bytes)", filename, file_size)
-    upload_info = client.get_upload_url(filename=filename, size=file_size)
+    log.info("Cloud: uploading %s as %s", Path(path_3mf).name, cloud_name)
+    upload = client.upload_file(path_3mf, filename=cloud_name)
+    log.info("Cloud: upload OK — %s", json.dumps(upload, default=str))
 
-    upload_url: str = ""
-    urls_array = upload_info.get("urls", [])
-    size_url: str = ""
-    for entry in urls_array:
-        if isinstance(entry, dict):
-            if entry.get("type") == "filename":
-                upload_url = entry["url"]
-            elif entry.get("type") == "size":
-                size_url = entry["url"]
-    if not upload_url:
-        upload_url = upload_info.get("upload_url", "")
-    if not upload_url:
-        raise RuntimeError(f"No upload URL in Bambu response: {upload_info}")
-
-    log.info("Cloud: uploading to S3 → %s", upload_url[:80] + "…")
-    with open(path_3mf, "rb") as f:
-        resp = _requests.put(upload_url, data=f, headers={}, timeout=120)
-    if resp.status_code >= 400:
-        raise RuntimeError(f"S3 upload failed ({resp.status_code}): {resp.text[:200]}")
-    log.info("Cloud: S3 upload OK (HTTP %d)", resp.status_code)
-    if size_url:
-        try:
-            _requests.put(size_url, data=str(file_size).encode(),
-                          headers={"Content-Type": "text/plain"}, timeout=10)
-        except Exception:
-            pass
-
-    # Permanent (unsigned) S3 URL — Bambu's cloud backend fetches the file from here
-    permanent_url = upload_url.split("?")[0]
-    log.info("Cloud: permanent_url=%s", permanent_url)
-
-    # ── Step 2: Get user UID for cloud MQTT auth ─────────────────────────────
-    user_info = client.get_user_info()
-    uid = str(user_info.get("uid") or user_info.get("userId") or user_info.get("user_id", ""))
-    if not uid:
-        raise RuntimeError(f"Could not determine user UID from: {user_info}")
-    log.info("Cloud: uid=%s", uid)
-
-    # ── Step 3: Connect to cloud MQTT and send project_file ──────────────────
-    CLOUD_BROKER = "us.mqtt.bambulab.com"
-    CLOUD_PORT   = 8883
-
-    # Retrieve the raw access token from the auth layer
-    auth_obj = client._auth if hasattr(client, "_auth") else None
-    access_token: str = ""
-    if auth_obj and hasattr(auth_obj, "token"):
-        access_token = auth_obj.token
-    if not access_token and hasattr(client, "token"):
-        access_token = client.token
-    if not access_token and hasattr(client, "_token"):
-        access_token = client._token
-    if not access_token:
-        # Last resort — re-read from token file
-        token_path = Path(BAMBU_TOKEN_FILE)
-        if token_path.exists():
-            access_token = token_path.read_text().strip()
-    if not access_token:
-        raise RuntimeError("Could not retrieve access token for cloud MQTT")
-
-    connected = False
-
-    def _on_connect(mqttc, userdata, flags, *args):
-        nonlocal connected
-        rc = args[0] if args else 0
-        connected = (rc == 0 if isinstance(rc, int) else rc.value == 0)
+    log.info("Cloud: starting print on device %s", BAMBU_SERIAL)
+    job = client.start_cloud_print(device_id=BAMBU_SERIAL, filename=cloud_name)
+    log.info("Cloud: start_cloud_print response — %s", json.dumps(job, default=str))
 
     try:
-        mqttc = mqtt.Client(
-            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,  # type: ignore[attr-defined]
-            client_id=f"holomat_{uuid.uuid4().hex[:8]}",
-        )
-    except AttributeError:
-        mqttc = mqtt.Client(client_id=f"holomat_{uuid.uuid4().hex[:8]}")
+        time.sleep(3)
+        status = client.get_print_status(force=True)
+        log.info("Cloud: print status after start — %s", json.dumps(status, default=str))
+    except Exception as e:
+        log.warning("Cloud: could not read print status: %s", e)
 
-    mqttc.on_connect = _on_connect
-    mqtt_user = f"u_{uid}" if not uid.startswith("u_") else uid
-    mqttc.username_pw_set(mqtt_user, access_token)
-    mqttc.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLS)
-
-    log.info("Cloud MQTT: connecting to %s:%d as %s", CLOUD_BROKER, CLOUD_PORT, mqtt_user)
-    mqttc.connect(CLOUD_BROKER, CLOUD_PORT, keepalive=60)
-    mqttc.loop_start()
-
-    deadline = time.time() + 15
-    while not connected and time.time() < deadline:
-        time.sleep(0.1)
-    if not connected:
-        mqttc.loop_stop()
-        raise RuntimeError("Cloud MQTT connect timed out after 15 s")
-
-    from core.bambu_signing import sign_mqtt_payload
-    subtask = filename.replace(".3mf", "")
-    seq_id = str(int(time.time() * 1000) % 100000)
-    print_cmd = {
-        "sequence_id": seq_id,
-        "command": "project_file",
-        "param": "Metadata/plate_1.gcode",
-        "subtask_name": subtask,
-        "url": permanent_url,
-        "timelapse": False,
-        "bed_leveling": True,
-        "flow_cali": False,
-        "vibration_cali": False,
-        "layer_inspect": False,
-        "use_ams": False,
-    }
-    # Wrap in ACS signature — required by P1S firmware post-Jan 2025
-    signed = sign_mqtt_payload(print_cmd, uid)
-    topic = f"device/{BAMBU_SERIAL}/request"
-    log.info("Cloud MQTT: publishing ACS-signed project_file → %s (cert=%s)", topic, signed["header"]["cert_id"])
-    mqttc.publish(topic, json.dumps({"print": signed}), qos=0)
-    time.sleep(1)
-    mqttc.loop_stop()
-    mqttc.disconnect()
-
-    log.info("Cloud MQTT: print command sent (seq=%s)", seq_id)
-    return {"filename": filename, "seq_id": seq_id, "cloud_status": "dispatched"}
+    return {"filename": cloud_name, "cloud_job": job}
 
 
 # ── LAN FTP upload ────────────────────────────────────────────────────────────
