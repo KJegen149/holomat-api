@@ -193,7 +193,8 @@ function AddJobForm({
         </select>
         {stls.length === 0 && (
           <div className="font-mono text-[9px] text-j-cdim mt-1">
-            No STL files found — compile a model in the Scanner tab first.
+            No STL files — generate a case in the Scanner tab, or drop a .stl
+            into the HolomatSTL share.
           </div>
         )}
       </div>

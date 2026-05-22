@@ -54,7 +54,11 @@ async def printer_status() -> JSONResponse:
 
 @router.get("/stls")
 async def list_stls() -> JSONResponse:
-    """List STL files compiled in scan_data/stls/ and available for queuing."""
+    """List .stl files in scan_data/stls/ available for queuing.
+
+    Matches any case (.stl / .STL) so files dropped via the HolomatSTL
+    share are picked up alongside OpenSCAD-compiled cases.
+    """
     if not STL_DIR.exists():
         return JSONResponse({"stls": []})
     stls = sorted(
@@ -65,7 +69,8 @@ async def list_stls() -> JSONResponse:
                 "size_bytes": f.stat().st_size,
                 "modified_at": f.stat().st_mtime,
             }
-            for f in STL_DIR.glob("*.stl")
+            for f in STL_DIR.iterdir()
+            if f.is_file() and f.suffix.lower() == ".stl"
         ],
         key=lambda x: x["modified_at"],
         reverse=True,
