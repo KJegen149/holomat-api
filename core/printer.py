@@ -18,6 +18,7 @@ import json
 import os
 import socket
 import ssl
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -60,6 +61,12 @@ def is_configured() -> bool:
     return is_cloud_configured() or is_lan_configured()
 
 
+# Serialises all printer-MQTT access — the P1S broker rejects new connections
+# when the status poll and the print trigger try to connect at the same time.
+_PRINTER_MQTT_LOCK = threading.Lock()
+_LAST_STATUS: dict = {}
+
+
 # ── Status (LAN MQTT) ─────────────────────────────────────────────────────────
 
 async def get_status() -> dict:
@@ -79,6 +86,10 @@ async def get_status() -> dict:
     loop = asyncio.get_running_loop()
 
     def _poll() -> dict:
+        global _LAST_STATUS
+        if not _PRINTER_MQTT_LOCK.acquire(blocking=False):
+            # a print dispatch holds the printer's MQTT — don't compete for it
+            return _LAST_STATUS or {"state": "BUSY", "detail": "print dispatch in progress"}
         printer = bl.Printer(
             ip_address=BAMBU_IP,
             access_code=BAMBU_ACCESS_CODE,
@@ -110,18 +121,20 @@ async def get_status() -> dict:
                 except Exception:
                     pass
 
-            return {
+            _LAST_STATUS = {
                 "state": state,
                 "nozzle_temp": printer.get_nozzle_temperature(),
                 "bed_temp": printer.get_bed_temperature(),
                 "progress": printer.get_percentage(),
                 "current_file": current_file,
             }
+            return _LAST_STATUS
         finally:
             try:
                 printer.disconnect()
             except Exception:
                 pass
+            _PRINTER_MQTT_LOCK.release()
 
     try:
         return await loop.run_in_executor(None, _poll)
@@ -481,7 +494,10 @@ def _lan_send_and_print(path_3mf: str, ams_slot: int = BAMBU_AMS_SLOT) -> dict:
         log.warning("No user_id available — printer may abort job immediately. "
                     "Set BAMBU_EMAIL + BAMBU_PASSWORD to authenticate.")
     filename = _ftp_upload(path_3mf)
-    _mqtt_print_trigger(filename, ams_slot=ams_slot, user_id=uid)
+    # Hold the printer-MQTT lock so a concurrent status poll cannot occupy the
+    # P1S broker while we connect to send the print command.
+    with _PRINTER_MQTT_LOCK:
+        _mqtt_print_trigger(filename, ams_slot=ams_slot, user_id=uid)
     return {"filename": filename, "ams_slot": ams_slot, "user_id": uid}
 
 
