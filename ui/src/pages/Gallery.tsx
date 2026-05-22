@@ -58,7 +58,11 @@ function SvgModal({ svg, onClose }: { svg: string; onClose: () => void }) {
           </div>
         </div>
         <div className="bg-white rounded p-3 flex items-center justify-center min-h-48">
-          <div dangerouslySetInnerHTML={{ __html: svg }} className="max-w-full max-h-96" />
+          <img
+            src={`data:image/svg+xml,${encodeURIComponent(svg)}`}
+            alt="Generated SVG"
+            className="max-w-full max-h-96"
+          />
         </div>
       </div>
     </div>

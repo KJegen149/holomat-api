@@ -58,9 +58,11 @@ def setup_logging() -> None:
     sh.setFormatter(fmt)
     root.addHandler(sh)
 
-    # WebSocket broadcast handler
+    # WebSocket broadcast handler — the UI receives ts + level as structured
+    # fields and renders them itself, so the broadcast message carries only the
+    # logger name + text (using `fmt` here would double the ts/level in the UI).
     wsh = _WebSocketHandler()
-    wsh.setFormatter(fmt)
+    wsh.setFormatter(logging.Formatter("%(name)-28s %(message)s"))
     root.addHandler(wsh)
 
     # Quiet noisy libraries

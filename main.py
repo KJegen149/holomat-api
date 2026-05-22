@@ -8,6 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -161,6 +162,15 @@ async def not_implemented(request: Request, exc: NotImplementedError) -> JSONRes
     return JSONResponse(
         status_code=501,
         content={"error": "not_implemented", "detail": str(exc) or "Feature not available"},
+    )
+
+
+@app.exception_handler(httpx.HTTPError)
+async def upstream_error(request: Request, exc: httpx.HTTPError) -> JSONResponse:
+    log.warning("Upstream HTTP error on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=502,
+        content={"error": "upstream_error", "detail": str(exc)},
     )
 
 

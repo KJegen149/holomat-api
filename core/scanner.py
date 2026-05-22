@@ -232,7 +232,7 @@ _VISION_PROMPT = (
 )
 
 
-async def identify_image(image_bytes: bytes, mime: str = "image/jpeg") -> dict:
+async def identify_image(image_bytes: bytes) -> dict:
     """Send image to Gemini Vision. Returns {name, brand, model, category, confidence}."""
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
