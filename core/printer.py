@@ -8,7 +8,7 @@ Active path (LAN-only mode, Developer Mode ON, firmware 01.08.02):
   Auto-starts without touchscreen confirmation.
   Requires: BAMBU_IP, BAMBU_ACCESS_CODE, BAMBU_SERIAL, BAMBU_EMAIL, BAMBU_PASSWORD
 
-Cloud path (preserved, not active — printer is in LAN-only mode):
+Cloud path (opt-in via BAMBU_USE_CLOUD=true — for printers not in LAN-only mode):
   Requires: BAMBU_EMAIL, BAMBU_PASSWORD, BAMBU_SERIAL
   See _cloud_send_and_print() and core/bambu_signing.py.
 """
@@ -30,13 +30,16 @@ log = get_logger(__name__)
 # ── Shared env vars ───────────────────────────────────────────────────────────
 BAMBU_SERIAL      = os.getenv("BAMBU_SERIAL", "")
 
-# ── Cloud-mode credentials ────────────────────────────────────────────────────
+# ── Cloud-mode credentials (opt-in — see BAMBU_USE_CLOUD) ─────────────────────
 BAMBU_EMAIL       = os.getenv("BAMBU_EMAIL", "")
 BAMBU_PASSWORD    = os.getenv("BAMBU_PASSWORD", "")
 BAMBU_TOKEN_FILE  = os.getenv("BAMBU_TOKEN_FILE", "scan_data/.bambu_token")
 BAMBU_REGION      = os.getenv("BAMBU_REGION", "global")   # "global" or "china"
+# Route prints through Bambu cloud. Off by default — the LAN path is used
+# unless this is explicitly "true" (cloud is for printers not in LAN-only mode).
+BAMBU_USE_CLOUD   = os.getenv("BAMBU_USE_CLOUD", "").strip().lower() == "true"
 
-# ── LAN-mode credentials (fallback) ──────────────────────────────────────────
+# ── LAN-mode credentials (default print path) ────────────────────────────────
 BAMBU_IP          = os.getenv("BAMBU_IP", "")
 BAMBU_ACCESS_CODE = os.getenv("BAMBU_ACCESS_CODE", "")
 BAMBU_CERT        = os.getenv("BAMBU_CERT", "certs/printer.pem")
@@ -486,25 +489,28 @@ def _lan_send_and_print(path_3mf: str, ams_slot: int = BAMBU_AMS_SLOT) -> dict:
 
 async def send_and_print(path_3mf: str, ams_slot: int = BAMBU_AMS_SLOT) -> dict:
     """
-    Upload .3mf and trigger print.
+    Upload the .3mf and start the print.
 
-    Prefers cloud mode (BAMBU_EMAIL + BAMBU_PASSWORD) which auto-starts the print.
-    Falls back to LAN mode (BAMBU_IP + BAMBU_ACCESS_CODE) which requires touchscreen confirmation.
-    Returns {status, filename, mode, ...}.
+    Default path is LAN (FTPS upload + LAN MQTT project_file). With a valid
+    user_id the printer auto-starts the job — no touchscreen confirmation.
+    The cloud path is opt-in via BAMBU_USE_CLOUD=true, preserved for printers
+    that are not in LAN-only mode (see _cloud_send_and_print).
+    Returns {status, mode, ...}.
     """
-    if not is_configured():
-        raise RuntimeError(
-            "Bambu printer not configured — set BAMBU_EMAIL+BAMBU_PASSWORD+BAMBU_SERIAL "
-            "for cloud mode, or BAMBU_IP+BAMBU_ACCESS_CODE+BAMBU_SERIAL for LAN mode"
-        )
-
     loop = asyncio.get_running_loop()
 
-    if is_cloud_configured():
-        log.info("Using cloud mode for print dispatch (auto-start, no confirmation required)")
+    if BAMBU_USE_CLOUD and is_cloud_configured():
+        log.info("Using cloud mode for print dispatch (BAMBU_USE_CLOUD=true)")
         result = await loop.run_in_executor(None, _cloud_send_and_print, path_3mf)
         return {"status": "sent", "mode": "cloud", **result}
 
-    log.info("Using LAN mode for print dispatch (touchscreen confirmation required)")
+    if not is_lan_configured():
+        raise RuntimeError(
+            "Bambu printer not configured for LAN — set BAMBU_IP, BAMBU_ACCESS_CODE "
+            "and BAMBU_SERIAL (plus BAMBU_EMAIL+BAMBU_PASSWORD for auto-start), or "
+            "set BAMBU_USE_CLOUD=true with cloud credentials"
+        )
+
+    log.info("Using LAN mode for print dispatch")
     result = await loop.run_in_executor(None, _lan_send_and_print, path_3mf, ams_slot)
     return {"status": "sent", "mode": "lan", **result}
