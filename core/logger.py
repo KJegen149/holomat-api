@@ -68,6 +68,10 @@ def setup_logging() -> None:
     # Quiet noisy libraries
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("watchdog").setLevel(logging.WARNING)
+    # bambulabs_api logs ERROR-level noise on every MQTT connect handshake
+    # ("Not connected...", "Printer Values Not Available Yet") that clears on
+    # its own — real printer state comes from the dry-run / status endpoint.
+    logging.getLogger("bambulabs_api").setLevel(logging.CRITICAL)
 
 
 def get_logger(name: str) -> logging.Logger:

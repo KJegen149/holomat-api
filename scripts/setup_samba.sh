@@ -5,6 +5,7 @@
 set -euo pipefail
 
 SHARE_DIR="/home/jarvis/holomat-api/smb_share"
+STL_DIR="/home/jarvis/holomat-api/scan_data/stls"
 HOLOMAT_CONF="/home/jarvis/holomat-api/config/samba.conf"
 SAMBA_MAIN="/etc/samba/smb.conf"
 INCLUDE_LINE="include = $HOLOMAT_CONF"
@@ -18,12 +19,12 @@ if ! command -v smbd &> /dev/null; then
     sudo apt-get install -y samba
 fi
 
-# 2. Create the share directory
-echo "Creating share directory: $SHARE_DIR"
-mkdir -p "$SHARE_DIR"
-chmod 775 "$SHARE_DIR"
+# 2. Create the share directories
+echo "Creating share directories: $SHARE_DIR, $STL_DIR"
+mkdir -p "$SHARE_DIR" "$STL_DIR"
+chmod 775 "$SHARE_DIR" "$STL_DIR"
 # Allow guest writes — samba will use force user=jarvis
-sudo chown jarvis:jarvis "$SHARE_DIR"
+sudo chown jarvis:jarvis "$SHARE_DIR" "$STL_DIR"
 
 # 3. Wire our config into /etc/samba/smb.conf (idempotent)
 if ! grep -qF "$INCLUDE_LINE" "$SAMBA_MAIN" 2>/dev/null; then
@@ -48,10 +49,9 @@ fi
 echo ""
 echo "=== Done ==="
 HOSTNAME=$(hostname)
-echo "  Share name : HolomatGallery"
-echo "  Windows    : \\\\${HOSTNAME}\\HolomatGallery"
-echo "  macOS      : smb://${HOSTNAME}/HolomatGallery"
-echo "  Local path : $SHARE_DIR"
+echo "  Gallery : \\\\${HOSTNAME}\\HolomatGallery  ($SHARE_DIR)"
+echo "  STL     : \\\\${HOSTNAME}\\HolomatSTL      ($STL_DIR)"
 echo ""
-echo "Drop images here from any device on your network."
-echo "Supported: jpg, jpeg, png, webp, heic, heif, gif"
+echo "Drop images into HolomatGallery (jpg/png/webp/heic/heif/gif) — they"
+echo "auto-ingest into the Gallery. Drop .stl files into HolomatSTL — they"
+echo "appear in the Print tab."
