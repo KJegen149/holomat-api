@@ -131,6 +131,8 @@ class _EventHandler(FileSystemEventHandler):
     def _process(self, src_path: str) -> None:
         path = Path(src_path)
         try:
+            if not path.exists():
+                return  # already ingested by a sibling create/close event
             if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
                 return
             if not _wait_stable(path):

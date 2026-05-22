@@ -129,8 +129,8 @@ async def generate_case_for_object(body: GenerateCaseBody) -> JSONResponse:
     try:
         code = await _generate_case_openscad(
             name=entry.get("name", "Object"),
-            width_mm=entry["width_mm"],
-            depth_mm=entry["depth_mm"],
+            width_mm=entry.get("width_mm", 0.0),
+            depth_mm=entry.get("depth_mm", 0.0),
             height_mm=height_mm,
             padding_mm=body.padding_mm,
             wall_mm=body.wall_mm,

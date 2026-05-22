@@ -133,32 +133,32 @@ export interface PatchObjectBody {
   notes?: string
 }
 
-async function _checkScan(r: Response) {
+async function _check<T>(r: Response): Promise<T> {
   if (!r.ok) {
-    const body = await r.json().catch(() => ({})) as { detail?: string }
-    throw new Error(body.detail ?? `HTTP ${r.status}`)
+    const body = await r.json().catch(() => ({})) as { detail?: string; error?: string }
+    throw new Error(body.detail ?? body.error ?? `HTTP ${r.status}`)
   }
   return r.json()
 }
 
 export async function captureBackground(): Promise<{ status: string; captured_at: string }> {
-  return _checkScan(await fetch('/api/scan/background', { method: 'POST' }))
+  return _check(await fetch('/api/scan/background', { method: 'POST' }))
 }
 
 export async function fetchBackgroundStatus(): Promise<BackgroundStatus> {
-  return _checkScan(await fetch('/api/scan/background/status'))
+  return _check(await fetch('/api/scan/background/status'))
 }
 
 export async function scanCapture(): Promise<ScanObject> {
-  return _checkScan(await fetch('/api/scan/capture', { method: 'POST' }))
+  return _check(await fetch('/api/scan/capture', { method: 'POST' }))
 }
 
 export async function fetchLibrary(): Promise<LibraryResponse> {
-  return _checkScan(await fetch('/api/scan/library'))
+  return _check(await fetch('/api/scan/library'))
 }
 
 export async function patchScanObject(id: string, body: PatchObjectBody): Promise<ScanObject> {
-  return _checkScan(await fetch(`/api/scan/library/${id}`, {
+  return _check(await fetch(`/api/scan/library/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -174,7 +174,7 @@ export async function deleteScanObject(id: string): Promise<void> {
 }
 
 export async function generateCase(objectId: string, paddingMm = 2, wallMm = 2): Promise<{ object_id: string; name: string; code: string }> {
-  return _checkScan(await fetch('/api/scan/generate-case', {
+  return _check(await fetch('/api/scan/generate-case', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ object_id: objectId, padding_mm: paddingMm, wall_mm: wallMm }),
@@ -212,20 +212,12 @@ export interface GenerateSvgResult {
   gallery_item_id: string
 }
 
-async function _checkGallery<T>(r: Response): Promise<T> {
-  if (!r.ok) {
-    const body = await r.json().catch(() => ({})) as { detail?: string; error?: string }
-    throw new Error(body.detail ?? body.error ?? `HTTP ${r.status}`)
-  }
-  return r.json()
-}
-
 export async function fetchGallery(limit = 50, offset = 0): Promise<GalleryListResponse> {
-  return _checkGallery(await fetch(`/api/gallery?limit=${limit}&offset=${offset}`))
+  return _check(await fetch(`/api/gallery?limit=${limit}&offset=${offset}`))
 }
 
 export async function deleteGalleryItem(id: string): Promise<{ deleted: string }> {
-  return _checkGallery(await fetch(`/api/gallery/${id}`, { method: 'DELETE' }))
+  return _check(await fetch(`/api/gallery/${id}`, { method: 'DELETE' }))
 }
 
 export function galleryImageUrl(id: string): string {
@@ -233,11 +225,11 @@ export function galleryImageUrl(id: string): string {
 }
 
 export async function galleryGenerate3d(id: string): Promise<Generate3dResult> {
-  return _checkGallery(await fetch(`/api/gallery/${id}/generate-3d`, { method: 'POST' }))
+  return _check(await fetch(`/api/gallery/${id}/generate-3d`, { method: 'POST' }))
 }
 
 export async function galleryGenerateSvg(id: string): Promise<GenerateSvgResult> {
-  return _checkGallery(await fetch(`/api/gallery/${id}/generate-svg`, { method: 'POST' }))
+  return _check(await fetch(`/api/gallery/${id}/generate-svg`, { method: 'POST' }))
 }
 
 // ── Generate API───────────────────────────────────────────────────
@@ -250,7 +242,7 @@ export interface StlResult {
 }
 
 export async function compileOpenscad(scadCode: string, name: string): Promise<StlResult> {
-  return _checkScan(await fetch('/api/generate/openscad', {
+  return _check(await fetch('/api/generate/openscad', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ scad_code: scadCode, name }),
@@ -303,24 +295,16 @@ export interface PrintQueueResponse {
   history: PrintJob[]
 }
 
-async function _checkPrint<T>(r: Response): Promise<T> {
-  if (!r.ok) {
-    const body = await r.json().catch(() => ({})) as { detail?: string; error?: string }
-    throw new Error(body.detail ?? body.error ?? `HTTP ${r.status}`)
-  }
-  return r.json()
-}
-
 export async function fetchPrinterStatus(): Promise<PrinterStatus> {
-  return _checkPrint(await fetch('/api/print/status'))
+  return _check(await fetch('/api/print/status'))
 }
 
 export async function fetchStls(): Promise<{ stls: StlFile[] }> {
-  return _checkPrint(await fetch('/api/print/stls'))
+  return _check(await fetch('/api/print/stls'))
 }
 
 export async function fetchPrintQueue(): Promise<PrintQueueResponse> {
-  return _checkPrint(await fetch('/api/print/queue'))
+  return _check(await fetch('/api/print/queue'))
 }
 
 export async function queuePrintJob(
@@ -328,7 +312,7 @@ export async function queuePrintJob(
   profile_id: string,
   name?: string,
 ): Promise<PrintJob> {
-  return _checkPrint(await fetch('/api/print/queue', {
+  return _check(await fetch('/api/print/queue', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ stl_filename, profile_id, name: name ?? '' }),
@@ -336,11 +320,11 @@ export async function queuePrintJob(
 }
 
 export async function cancelPrintJob(jobId: string): Promise<{ cancelled: string }> {
-  return _checkPrint(await fetch(`/api/print/queue/${jobId}`, { method: 'DELETE' }))
+  return _check(await fetch(`/api/print/queue/${jobId}`, { method: 'DELETE' }))
 }
 
 export async function fetchPrintProfiles(): Promise<{ profiles: PrintProfile[] }> {
-  return _checkPrint(await fetch('/api/print/profiles'))
+  return _check(await fetch('/api/print/profiles'))
 }
 
 export async function createPrintProfile(body: {
@@ -349,7 +333,7 @@ export async function createPrintProfile(body: {
   infill_percent: number
   supports: string
 }): Promise<PrintProfile> {
-  return _checkPrint(await fetch('/api/print/profiles', {
+  return _check(await fetch('/api/print/profiles', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -357,7 +341,7 @@ export async function createPrintProfile(body: {
 }
 
 export async function deletePrintProfile(profileId: string): Promise<{ deleted: string }> {
-  return _checkPrint(await fetch(`/api/print/profiles/${profileId}`, { method: 'DELETE' }))
+  return _check(await fetch(`/api/print/profiles/${profileId}`, { method: 'DELETE' }))
 }
 
 // ── Voice Bridge API───────────────────────────────────────────────
@@ -386,28 +370,20 @@ export interface VoiceHistory {
   conversation_id: string | null
 }
 
-async function _checkVoice<T>(r: Response): Promise<T> {
-  if (!r.ok) {
-    const body = await r.json().catch(() => ({})) as { detail?: string; error?: string }
-    throw new Error(body.detail ?? body.error ?? `HTTP ${r.status}`)
-  }
-  return r.json()
-}
-
 export async function fetchVoiceStatus(): Promise<VoiceStatus> {
-  return _checkVoice(await fetch('/api/voice/status'))
+  return _check(await fetch('/api/voice/status'))
 }
 
 export async function fetchVoiceHistory(): Promise<VoiceHistory> {
-  return _checkVoice(await fetch('/api/voice/history'))
+  return _check(await fetch('/api/voice/history'))
 }
 
 export async function triggerVoice(): Promise<{ triggered: boolean; state: string }> {
-  return _checkVoice(await fetch('/api/voice/trigger', { method: 'POST' }))
+  return _check(await fetch('/api/voice/trigger', { method: 'POST' }))
 }
 
 export async function clearVoiceHistory(): Promise<{ cleared: boolean }> {
-  return _checkVoice(await fetch('/api/voice/history', { method: 'DELETE' }))
+  return _check(await fetch('/api/voice/history', { method: 'DELETE' }))
 }
 
 // ── Settings API───────────────────────────────────────────────────

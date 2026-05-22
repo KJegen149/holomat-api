@@ -70,9 +70,12 @@ class CameraManager:
             if not ret or frame is None:
                 await asyncio.sleep(0.1)
                 continue
-            _, buf = cv2.imencode(
+            ok, buf = cv2.imencode(
                 ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY]
             )
+            if not ok:
+                await asyncio.sleep(0.1)
+                continue
             yield (
                 b"--frame\r\n"
                 b"Content-Type: image/jpeg\r\n\r\n"
