@@ -446,28 +446,44 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT,
     msg = {"print": inner}
     topic = f"device/{BAMBU_SERIAL}/request"
 
-    received: list[str] = []
+    msgs: list[dict] = []
 
     def _on_message(client, userdata, message):
         try:
             data = json.loads(message.payload)
-            if "print" in data and "command" in data.get("print", {}):
-                received.append(json.dumps(data["print"]))
+            p = data.get("print")
+            if isinstance(p, dict):
+                msgs.append(p)
         except Exception:
             pass
 
     client.on_message = _on_message
 
     client.publish(topic, json.dumps(msg), qos=0)
-    time.sleep(2)
+
+    # Wait for the printer's verdict on the project_file command. It echoes a
+    # message with command="project_file" carrying a result/reason; capture it
+    # so we know whether the print was accepted, rejected, or silently ignored.
+    project_resp = None
+    deadline = time.time() + 8
+    while time.time() < deadline and project_resp is None:
+        project_resp = next((p for p in msgs if p.get("command") == "project_file"), None)
+        time.sleep(0.2)
+
     client.loop_stop()
     client.disconnect()
 
     log.info("MQTT print trigger sent (seq=%s): %s → %s", seq_id, topic, filename)
-    if received:
-        log.info("Printer ack: %s", received[0])
+    if project_resp is not None:
+        log.info("Printer project_file response: %s", json.dumps(project_resp))
     else:
-        log.info("No ack received from printer within 2 s")
+        log.warning("No project_file response in 8 s — printer did not acknowledge the command.")
+        status = [p for p in msgs if p.get("command") == "push_status"]
+        if status:
+            keys = ("gcode_state", "mc_print_stage", "print_error", "print_type",
+                    "fail_reason", "mc_percent", "subtask_name", "print_gcode_action")
+            snap = {k: status[-1][k] for k in keys if k in status[-1]}
+            log.warning("Printer status after trigger: %s", json.dumps(snap))
 
 
 def _get_user_id() -> str:
