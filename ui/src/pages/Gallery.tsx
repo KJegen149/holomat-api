@@ -6,7 +6,8 @@ import {
 import {
   fetchGallery, deleteGalleryItem, galleryImageUrl,
   galleryGenerate3d, galleryGenerateSvg,
-  type GalleryItem,
+  fetchMeshyJobs,
+  type GalleryItem, type MeshyJob,
 } from '../api/client'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -73,10 +74,12 @@ function SvgModal({ svg, onClose }: { svg: string; onClose: () => void }) {
 
 function GalleryCard({
   item,
+  meshyJob,
   onDelete,
   onSvgReady,
 }: {
   item: GalleryItem
+  meshyJob: MeshyJob | undefined
   onDelete: (id: string) => void
   onSvgReady: (svg: string) => void
 }) {
@@ -100,14 +103,51 @@ function GalleryCard({
     setGen3d('loading')
     setGen3dMsg(null)
     try {
-      const r = await galleryGenerate3d(item.id)
+      await galleryGenerate3d(item.id)
       setGen3d('done')
-      setGen3dMsg(`Task ${r.task_id.slice(0, 8)}… — project created`)
+      // The MeshyJob WS updates take over from here; show progress in a dedicated row.
     } catch (e) {
       setGen3d('error')
       setGen3dMsg(e instanceof Error ? e.message : 'Failed')
     }
   }
+
+  // Render live Meshy progress / outcome when the parent has a job for this item.
+  const meshyRow = meshyJob && (() => {
+    const isActive = ['pending', 'polling', 'downloading'].includes(meshyJob.state)
+    const labelMap: Record<string, string> = {
+      pending:     'Queued',
+      polling:     `Generating ${meshyJob.progress}%`,
+      downloading: 'Downloading STL',
+      done:        `Saved: ${meshyJob.stl_filename ?? ''}`,
+      failed:      meshyJob.error || 'Failed',
+      cancelled:   'Cancelled',
+    }
+    const colorMap: Record<string, string> = {
+      pending:     'text-j-muted',
+      polling:     'text-j-amber',
+      downloading: 'text-j-cyan',
+      done:        'text-j-green',
+      failed:      'text-j-red',
+      cancelled:   'text-j-cdim',
+    }
+    return (
+      <div className="space-y-1">
+        <div className={`flex items-center gap-1 text-[10px] font-mono ${colorMap[meshyJob.state]}`}>
+          {isActive && <Loader2 size={10} className="animate-spin" />}
+          <span className="truncate">{labelMap[meshyJob.state]}</span>
+        </div>
+        {isActive && (
+          <div className="h-0.5 bg-j-border rounded-full overflow-hidden">
+            <div
+              className="h-full bg-j-cyan transition-all"
+              style={{ width: `${meshyJob.progress}%` }}
+            />
+          </div>
+        )}
+      </div>
+    )
+  })()
 
   async function handleGenerateSvg() {
     setGenSvg('loading')
@@ -190,7 +230,8 @@ function GalleryCard({
           </button>
         </div>
 
-        {gen3dMsg && (
+        {meshyRow}
+        {gen3dMsg && !meshyJob && (
           <p className={`text-[10px] font-mono ${gen3d === 'error' ? 'text-j-amber' : 'text-j-green'} truncate`}>
             {gen3dMsg}
           </p>
@@ -233,6 +274,9 @@ export default function Gallery() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [svgModal, setSvgModal] = useState<string | null>(null)
+  // For each gallery item that has an in-flight or recent Meshy job, surface
+  // the latest state on its card. Keyed by gallery_item_id.
+  const [meshyByItem, setMeshyByItem] = useState<Record<string, MeshyJob>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -248,9 +292,21 @@ export default function Gallery() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  const refreshMeshy = useCallback(async () => {
+    try {
+      const r = await fetchMeshyJobs()
+      // Keep the most-recently-updated job per gallery item (active beats history).
+      const map: Record<string, MeshyJob> = {}
+      for (const j of [...r.history, ...r.active]) {
+        if (j.gallery_item_id) map[j.gallery_item_id] = j
+      }
+      setMeshyByItem(map)
+    } catch { /* non-fatal */ }
+  }, [])
 
-  // WebSocket listener for real-time gallery_new events
+  useEffect(() => { load(); refreshMeshy() }, [load, refreshMeshy])
+
+  // WebSocket listener for gallery_new + meshy_job_update events
   useEffect(() => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
     const ws = new WebSocket(`${proto}://${location.host}/ws`)
@@ -261,10 +317,13 @@ export default function Gallery() {
           setItems(prev => [d.item!, ...prev])
           setTotal(prev => prev + 1)
         }
+        if (d.type === 'meshy_job_update') {
+          refreshMeshy()
+        }
       } catch { /* ignore */ }
     }
     return () => ws.close()
-  }, [])
+  }, [refreshMeshy])
 
   function handleDelete(id: string) {
     setItems(prev => prev.filter(i => i.id !== id))
@@ -325,6 +384,7 @@ export default function Gallery() {
             <GalleryCard
               key={item.id}
               item={item}
+              meshyJob={meshyByItem[item.id]}
               onDelete={handleDelete}
               onSvgReady={svg => setSvgModal(svg)}
             />

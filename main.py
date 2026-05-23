@@ -69,6 +69,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.warning("Print queue failed to start: %s", e)
 
+    # Meshy retrieval worker (Phase 11)
+    try:
+        from core.meshy_jobs import meshy_jobs
+        meshy_jobs.set_broadcast(ws_manager.broadcast)
+        meshy_jobs.start()
+    except Exception as e:
+        log.warning("Meshy retrieval worker failed to start: %s", e)
+
     # Voice bridge
     try:
         from core.voice_bridge import voice_bridge
@@ -91,6 +99,11 @@ async def lifespan(app: FastAPI):
     try:
         from core.print_queue import print_queue
         print_queue.stop()
+    except Exception:
+        pass
+    try:
+        from core.meshy_jobs import meshy_jobs
+        meshy_jobs.stop()
     except Exception:
         pass
     for name, obj in [("SMB watcher", "watcher"), ("Voice bridge", "voice_bridge")]:

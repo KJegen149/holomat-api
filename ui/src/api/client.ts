@@ -205,6 +205,7 @@ export interface Generate3dResult {
   mode: string
   project_id: string
   gallery_item_id: string
+  meshy_job_id: string
 }
 
 export interface GenerateSvgResult {
@@ -379,6 +380,44 @@ export async function fetchSourceStls(): Promise<{ stls: ModelSourceStl[] }> {
 
 export async function deleteSourceStl(filename: string): Promise<{ deleted: string }> {
   return _check(await fetch(`/api/sources/stls/${encodeURIComponent(filename)}`, { method: 'DELETE' }))
+}
+
+// ── Meshy retrieval (Phase 11 item 3) ────────────────────────────
+
+export type MeshyJobState =
+  | 'pending'
+  | 'polling'
+  | 'downloading'
+  | 'done'
+  | 'failed'
+  | 'cancelled'
+
+export interface MeshyJob {
+  id: string
+  task_id: string
+  source: 'image'
+  source_filename: string
+  gallery_item_id: string | null
+  thumbnail_url: string | null
+  state: MeshyJobState
+  created_at: string
+  completed_at: string | null
+  error: string | null
+  progress: number
+  stl_filename: string | null
+}
+
+export interface MeshyJobsResponse {
+  active: MeshyJob[]
+  history: MeshyJob[]
+}
+
+export async function fetchMeshyJobs(): Promise<MeshyJobsResponse> {
+  return _check(await fetch('/api/sources/meshy/jobs'))
+}
+
+export async function cancelMeshyJob(jobId: string): Promise<{ cancelled: string }> {
+  return _check(await fetch(`/api/sources/meshy/jobs/${jobId}`, { method: 'DELETE' }))
 }
 
 // ── Voice Bridge API───────────────────────────────────────────────

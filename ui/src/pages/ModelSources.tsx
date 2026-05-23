@@ -7,15 +7,17 @@
  *
  * The Print tab keeps its own quick STL dropdown — this is the fuller view.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Boxes, RefreshCw, Trash2, Printer, Loader2, AlertTriangle, X,
-  Box, Globe, Hammer, ExternalLink, Pencil,
+  Box, Globe, Hammer, ExternalLink, Pencil, Sparkles, CheckCircle2,
 } from 'lucide-react'
 import {
   fetchSourceStls, deleteSourceStl,
   queuePrintJob, fetchPrintProfiles,
+  fetchMeshyJobs, cancelMeshyJob,
   type ModelSourceStl, type ModelSource, type PrintProfile,
+  type MeshyJob, type MeshyJobState,
 } from '../api/client'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -188,16 +190,96 @@ function StlCard({
   )
 }
 
-// ── Import sources strip ────────────────────────────────────────────────────
+// ── Meshy retrievals (live pending jobs panel) ──────────────────────────────
 
-/**
- * Placeholder buttons for the Phase 11 inlets that aren't wired up yet.
- * Each renders disabled with a "Coming soon" tooltip; they become live as
- * later commits land their respective import flows.
- */
-function ImportSources() {
+const MESHY_STATE_LABEL: Record<MeshyJobState, string> = {
+  pending:     'PENDING',
+  polling:     'POLLING',
+  downloading: 'DOWNLOADING',
+  done:        'DONE',
+  failed:      'FAILED',
+  cancelled:   'CANCELLED',
+}
+
+const MESHY_STATE_COLOR: Record<MeshyJobState, string> = {
+  pending:     'text-j-muted',
+  polling:     'text-j-amber',
+  downloading: 'text-j-cyan',
+  done:        'text-j-green',
+  failed:      'text-j-red',
+  cancelled:   'text-j-cdim',
+}
+
+function MeshyJobRow({ job, onCancel }: { job: MeshyJob; onCancel: (id: string) => void }) {
+  const isActive = ['pending', 'polling', 'downloading'].includes(job.state)
+  return (
+    <div className="border border-j-border rounded-sm px-2 py-1.5 space-y-1">
+      <div className="flex items-center gap-1.5">
+        <span className="font-sans text-[10px] text-j-text truncate flex-1" title={job.source_filename}>
+          {job.source_filename}
+        </span>
+        <span className={`font-mono text-[8px] tracking-[0.1em] ${MESHY_STATE_COLOR[job.state]}`}>
+          {MESHY_STATE_LABEL[job.state]}
+        </span>
+        {isActive && (
+          <button
+            onClick={() => onCancel(job.id)}
+            className="text-j-muted hover:text-j-red transition-colors"
+            title="Cancel"
+          >
+            <X size={10} />
+          </button>
+        )}
+      </div>
+      {isActive && (
+        <div className="h-0.5 bg-j-border rounded-full overflow-hidden">
+          <div
+            className="h-full bg-j-cyan transition-all"
+            style={{ width: `${job.progress}%` }}
+          />
+        </div>
+      )}
+      {job.error && (
+        <div className="font-mono text-[8px] text-j-red break-all">{job.error}</div>
+      )}
+    </div>
+  )
+}
+
+function MeshyRetrievals({
+  active,
+  onCancel,
+}: {
+  active: MeshyJob[]
+  onCancel: (id: string) => void
+}) {
+  return (
+    <div className="border border-j-border rounded-sm p-3">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5 font-mono text-[9px] text-j-cdim tracking-[0.2em] uppercase">
+          <Sparkles size={10} className="text-j-amber" /> Meshy Retrievals
+        </div>
+        {active.length > 0 && (
+          <span className="font-mono text-[9px] text-j-cyan">{active.length} active</span>
+        )}
+      </div>
+      {active.length === 0 ? (
+        <p className="font-mono text-[9px] text-j-cdim leading-relaxed">
+          Submit images from the Gallery tab — finished STLs land here.
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {active.map(j => <MeshyJobRow key={j.id} job={j} onCancel={onCancel} />)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Other inlets (still placeholders) ───────────────────────────────────────
+
+function OtherInlets() {
   const sources: { label: string; icon: typeof Box; tip: string }[] = [
-    { label: 'Meshy',       icon: Boxes,  tip: 'Auto-import from Meshy image-to-3D — coming soon' },
     { label: 'Thingiverse', icon: Globe,  tip: 'Browse Thingiverse — coming soon' },
     { label: 'MakerWorld',  icon: Globe,  tip: 'Browse MakerWorld — coming soon' },
     { label: 'TinkerCad',   icon: Pencil, tip: 'Open TinkerCad — coming soon' },
@@ -205,15 +287,15 @@ function ImportSources() {
   return (
     <div className="border border-j-border rounded-sm p-3">
       <div className="font-mono text-[9px] text-j-cdim tracking-[0.2em] uppercase mb-2">
-        Import Sources
+        Other Inlets
       </div>
-      <div className="grid grid-cols-2 gap-1.5">
+      <div className="grid grid-cols-1 gap-1.5">
         {sources.map(({ label, icon: Icon, tip }) => (
           <button
             key={label}
             disabled
             title={tip}
-            className="flex items-center justify-center gap-1.5 py-2 border border-j-border
+            className="flex items-center justify-center gap-1.5 py-1.5 border border-j-border
                        text-j-cdim opacity-50 cursor-not-allowed rounded-sm
                        font-mono text-[10px] tracking-[0.05em] uppercase"
           >
@@ -223,7 +305,7 @@ function ImportSources() {
       </div>
       <p className="font-mono text-[9px] text-j-cdim mt-2 leading-relaxed">
         Drop into <span className="text-j-muted">\\KJLC-AI-01\HolomatSTL</span> for
-        immediate ingestion. Hosted inlets land in later Phase 11 commits.
+        immediate ingestion.
       </p>
     </div>
   )
@@ -234,16 +316,24 @@ function ImportSources() {
 export default function ModelSources() {
   const [stls, setStls] = useState<ModelSourceStl[]>([])
   const [profiles, setProfiles] = useState<PrintProfile[]>([])
+  const [meshyActive, setMeshyActive] = useState<MeshyJob[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Use a ref so the WS callback can refresh without re-subscribing on every state change
+  const reloadRef = useRef<() => void>(() => {})
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [r, p] = await Promise.all([fetchSourceStls(), fetchPrintProfiles()])
+      const [r, p, m] = await Promise.all([
+        fetchSourceStls(),
+        fetchPrintProfiles(),
+        fetchMeshyJobs(),
+      ])
       setStls(r.stls)
       setProfiles(p.profiles)
+      setMeshyActive(m.active)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load')
     } finally {
@@ -251,11 +341,29 @@ export default function ModelSources() {
     }
   }, [])
 
+  useEffect(() => { reloadRef.current = load }, [load])
+
   useEffect(() => {
     load()
     const id = setInterval(load, 15_000)
     return () => clearInterval(id)
   }, [load])
+
+  // Listen for live Meshy job updates → refresh the STL grid when one finishes
+  useEffect(() => {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+    const ws = new WebSocket(`${proto}://${location.host}/ws`)
+    ws.onmessage = (e) => {
+      try {
+        const d = JSON.parse(e.data as string) as { type?: string; state?: MeshyJobState }
+        if (d.type === 'meshy_job_update') {
+          // A finished/cancelled job means the active list shrinks and a new STL may exist
+          reloadRef.current()
+        }
+      } catch { /* ignore */ }
+    }
+    return () => ws.close()
+  }, [])
 
   const handleQueue = useCallback(async (filename: string, profile: string) => {
     await queuePrintJob(filename, profile)
@@ -264,6 +372,15 @@ export default function ModelSources() {
   const handleDelete = useCallback(async (filename: string) => {
     await deleteSourceStl(filename)
     setStls(prev => prev.filter(s => s.filename !== filename))
+  }, [])
+
+  const handleCancelMeshy = useCallback(async (jobId: string) => {
+    try {
+      await cancelMeshyJob(jobId)
+      setMeshyActive(prev => prev.filter(j => j.id !== jobId))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Cancel failed')
+    }
   }, [])
 
   return (
@@ -337,8 +454,9 @@ export default function ModelSources() {
             INLETS
           </span>
         </div>
-        <div className="flex-1 p-4 overflow-y-auto">
-          <ImportSources />
+        <div className="flex-1 p-4 overflow-y-auto space-y-3">
+          <MeshyRetrievals active={meshyActive} onCancel={handleCancelMeshy} />
+          <OtherInlets />
         </div>
       </div>
     </div>

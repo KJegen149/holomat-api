@@ -8,6 +8,8 @@ Thingiverse, MakerWorld, …).
 
 GET    /api/sources/stls               — list STLs in the pool (with sidecar metadata)
 DELETE /api/sources/stls/{filename}    — delete an STL (refuses if referenced by an active job)
+GET    /api/sources/meshy/jobs         — list Meshy retrieval jobs (active + history)
+DELETE /api/sources/meshy/jobs/{id}    — cancel a pending Meshy job
 
 Per-file sidecar: an STL named `foo.stl` may have `foo.stl.meta.json` next to
 it with shape `{"source": "<id>", "external_url": "...", ...}`. Import sources
@@ -22,6 +24,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
 from core.logger import get_logger
+from core.meshy_jobs import meshy_jobs
 from core.print_queue import print_queue
 
 log = get_logger(__name__)
@@ -100,3 +103,23 @@ async def delete_stl(filename: str) -> JSONResponse:
         side.unlink()
     log.info("Deleted STL: %s", filename)
     return JSONResponse({"deleted": filename})
+
+
+# ── Meshy retrieval jobs (Phase 11 item 3) ───────────────────────────────────
+
+@router.get("/meshy/jobs")
+async def list_meshy_jobs() -> JSONResponse:
+    """Return Meshy retrieval jobs split into active and recent history."""
+    jobs = meshy_jobs.get_jobs()
+    active = [j for j in jobs if j["state"] not in ("done", "failed", "cancelled")]
+    history = [j for j in jobs if j["state"] in ("done", "failed", "cancelled")]
+    return JSONResponse({"active": active, "history": history[-20:]})
+
+
+@router.delete("/meshy/jobs/{job_id}")
+async def cancel_meshy_job(job_id: str) -> JSONResponse:
+    """Cancel a pending Meshy job. Already-completed jobs cannot be cancelled."""
+    ok = await meshy_jobs.cancel_job(job_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Job not found or already finished")
+    return JSONResponse({"cancelled": job_id})
