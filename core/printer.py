@@ -1,16 +1,15 @@
 """
 Bambu Lab P1S — LAN-mode print dispatch with cloud auth for user_id.
 
-Active path (LAN-only mode, Developer Mode ON, firmware 01.08.02):
+Verified working on firmware 01.08.00 and 01.08.02 with Developer Mode ON.
+The printer can stay cloud-connected (Bambu Handy / Studio keep working) —
+LAN-only mode is NOT required.
+
   Auth:     BAMBU_EMAIL + BAMBU_PASSWORD → Bambu cloud → fetch user_id only
   Upload:   implicit FTPS port 990 → printer /cache/
   Trigger:  LAN MQTT project_file command (port 8883, file:///sdcard/cache/ URL)
-  Auto-starts without touchscreen confirmation.
-  Requires: BAMBU_IP, BAMBU_ACCESS_CODE, BAMBU_SERIAL, BAMBU_EMAIL, BAMBU_PASSWORD
 
-Cloud path (opt-in via BAMBU_USE_CLOUD=true — for printers not in LAN-only mode):
-  Requires: BAMBU_EMAIL, BAMBU_PASSWORD, BAMBU_SERIAL
-  See _cloud_send_and_print() and core/bambu_signing.py.
+Required env: BAMBU_IP, BAMBU_ACCESS_CODE, BAMBU_SERIAL, BAMBU_EMAIL, BAMBU_PASSWORD
 """
 import asyncio
 import ftplib
@@ -28,19 +27,8 @@ from core.logger import get_logger
 
 log = get_logger(__name__)
 
-# ── Shared env vars ───────────────────────────────────────────────────────────
+# ── Env vars ──────────────────────────────────────────────────────────────────
 BAMBU_SERIAL      = os.getenv("BAMBU_SERIAL", "")
-
-# ── Cloud-mode credentials (opt-in — see BAMBU_USE_CLOUD) ─────────────────────
-BAMBU_EMAIL       = os.getenv("BAMBU_EMAIL", "")
-BAMBU_PASSWORD    = os.getenv("BAMBU_PASSWORD", "")
-BAMBU_TOKEN_FILE  = os.getenv("BAMBU_TOKEN_FILE", "scan_data/.bambu_token")
-BAMBU_REGION      = os.getenv("BAMBU_REGION", "global")   # "global" or "china"
-# Route prints through Bambu cloud. Off by default — the LAN path is used
-# unless this is explicitly "true" (cloud is for printers not in LAN-only mode).
-BAMBU_USE_CLOUD   = os.getenv("BAMBU_USE_CLOUD", "").strip().lower() == "true"
-
-# ── LAN-mode credentials (default print path) ────────────────────────────────
 BAMBU_IP          = os.getenv("BAMBU_IP", "")
 BAMBU_ACCESS_CODE = os.getenv("BAMBU_ACCESS_CODE", "")
 BAMBU_CERT        = os.getenv("BAMBU_CERT", "certs/printer.pem")
@@ -48,8 +36,15 @@ BAMBU_FTP_PORT    = int(os.getenv("BAMBU_FTP_PORT") or "990")
 BAMBU_MQTT_PORT   = int(os.getenv("BAMBU_MQTT_PORT") or "8883")
 BAMBU_AMS_SLOT    = int(os.getenv("BAMBU_AMS_SLOT") or "0")
 
+# Cloud auth (needed only to look up user_id, which the LAN MQTT payload requires).
+BAMBU_EMAIL       = os.getenv("BAMBU_EMAIL", "")
+BAMBU_PASSWORD    = os.getenv("BAMBU_PASSWORD", "")
+BAMBU_TOKEN_FILE  = os.getenv("BAMBU_TOKEN_FILE", "scan_data/.bambu_token")
+BAMBU_REGION      = os.getenv("BAMBU_REGION", "global")   # "global" or "china"
+
 
 def is_cloud_configured() -> bool:
+    """True iff we can reach Bambu cloud to look up the user_id."""
     return bool(BAMBU_EMAIL and BAMBU_PASSWORD and BAMBU_SERIAL)
 
 
@@ -58,7 +53,7 @@ def is_lan_configured() -> bool:
 
 
 def is_configured() -> bool:
-    return is_cloud_configured() or is_lan_configured()
+    return is_lan_configured()
 
 
 # Serialises all printer-MQTT access — the P1S broker rejects new connections
@@ -143,79 +138,15 @@ async def get_status() -> dict:
         return {"error": str(e)}
 
 
-# ── Cloud upload + print trigger ──────────────────────────────────────────────
+# ── Bambu cloud auth (for user_id lookup only) ────────────────────────────────
 
 def _get_bambu_client():
-    """Authenticate with Bambu cloud and return a BambuClient."""
+    """Authenticate with Bambu cloud and return a BambuClient (for user_id lookup)."""
     from bambulab import BambuAuthenticator, BambuClient  # type: ignore
     Path(BAMBU_TOKEN_FILE).parent.mkdir(parents=True, exist_ok=True)
     auth = BambuAuthenticator(region=BAMBU_REGION, token_file=BAMBU_TOKEN_FILE)
     token = auth.get_or_create_token(username=BAMBU_EMAIL, password=BAMBU_PASSWORD)
     return BambuClient(token=token)
-
-
-def _cloud_send_and_print(path_3mf: str) -> dict:
-    """
-    Upload the 3MF to Bambu Cloud and start the print via the cloud API.
-
-    The library's upload_file PUTs to Bambu's S3 but doesn't always register
-    the file as a "project" right away — start_cloud_print searches the project
-    index by name and 404s when the record hasn't been written yet. We poll
-    the index after upload; if the record never appears we fall back to
-    start_print_job with the upload URL directly.
-    """
-    client = _get_bambu_client()
-    cloud_name = f"{Path(path_3mf).stem}_{int(time.time())}.3mf"
-
-    log.info("Cloud: uploading %s as %s", Path(path_3mf).name, cloud_name)
-    upload = client.upload_file(path_3mf, filename=cloud_name)
-    log.info("Cloud: upload OK — %s", json.dumps(upload, default=str))
-
-    target = None
-    for attempt in range(1, 11):
-        time.sleep(2)
-        try:
-            files = client.get_cloud_files()
-        except Exception as e:
-            log.warning("Cloud: get_cloud_files failed (try %d/10): %s", attempt, e)
-            continue
-        log.info("Cloud: project index has %d entries (try %d/10)", len(files), attempt)
-        for f in files:
-            for k in ("name", "file_name", "title"):
-                if f.get(k) == cloud_name:
-                    target = f
-                    break
-            if target:
-                break
-        if target:
-            break
-
-    if target:
-        log.info("Cloud: upload registered — %s", json.dumps(target, default=str))
-        log.info("Cloud: starting print on device %s", BAMBU_SERIAL)
-        job = client.start_cloud_print(device_id=BAMBU_SERIAL, filename=cloud_name)
-    else:
-        upload_url = upload.get("upload_url") or ""
-        log.warning(
-            "Cloud: upload not visible in project index after 20s — "
-            "falling back to direct start_print_job with the upload URL"
-        )
-        job = client.start_print_job(
-            device_id=BAMBU_SERIAL,
-            file_url=upload_url,
-            file_name=cloud_name,
-        )
-
-    log.info("Cloud: print job response — %s", json.dumps(job, default=str))
-
-    try:
-        time.sleep(3)
-        status = client.get_print_status(force=True)
-        log.info("Cloud: print status after start — %s", json.dumps(status, default=str))
-    except Exception as e:
-        log.warning("Cloud: could not read print status: %s", e)
-
-    return {"filename": cloud_name, "cloud_job": job}
 
 
 # ── LAN FTP upload ────────────────────────────────────────────────────────────
@@ -448,28 +379,19 @@ def _lan_send_and_print(path_3mf: str, ams_slot: int = BAMBU_AMS_SLOT) -> dict:
 
 async def send_and_print(path_3mf: str, ams_slot: int = BAMBU_AMS_SLOT) -> dict:
     """
-    Upload the .3mf and start the print.
+    Upload the .3mf and start the print over LAN.
 
-    Default path is LAN (FTPS upload + LAN MQTT project_file). With a valid
-    user_id the printer auto-starts the job — no touchscreen confirmation.
-    The cloud path is opt-in via BAMBU_USE_CLOUD=true, preserved for printers
-    that are not in LAN-only mode (see _cloud_send_and_print).
-    Returns {status, mode, ...}.
+    FTPS upload + LAN MQTT project_file command. With a valid user_id the
+    printer auto-starts the job — no touchscreen confirmation needed.
+    Returns {status, mode, filename, ams_slot, user_id}.
     """
-    loop = asyncio.get_running_loop()
-
-    if BAMBU_USE_CLOUD and is_cloud_configured():
-        log.info("Using cloud mode for print dispatch (BAMBU_USE_CLOUD=true)")
-        result = await loop.run_in_executor(None, _cloud_send_and_print, path_3mf)
-        return {"status": "sent", "mode": "cloud", **result}
-
     if not is_lan_configured():
         raise RuntimeError(
-            "Bambu printer not configured for LAN — set BAMBU_IP, BAMBU_ACCESS_CODE "
-            "and BAMBU_SERIAL (plus BAMBU_EMAIL+BAMBU_PASSWORD for auto-start), or "
-            "set BAMBU_USE_CLOUD=true with cloud credentials"
+            "Bambu printer not configured — set BAMBU_IP, BAMBU_ACCESS_CODE, "
+            "BAMBU_SERIAL (and BAMBU_EMAIL + BAMBU_PASSWORD so the printer auto-starts)"
         )
 
     log.info("Using LAN mode for print dispatch")
+    loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, _lan_send_and_print, path_3mf, ams_slot)
     return {"status": "sent", "mode": "lan", **result}
