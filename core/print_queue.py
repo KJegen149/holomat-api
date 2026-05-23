@@ -215,9 +215,21 @@ class PrintQueue:
         await self._set(job_id, state="printing")
 
         # ── 3. Poll printer until done (up to 8 h) ────────────────────────
+        # State machine for a fresh job: IDLE → PREPARE → RUNNING → FINISH → IDLE.
+        # We MUST see RUNNING at least once before treating IDLE/FINISH as
+        # completion — otherwise the first poll after dispatch (still IDLE
+        # because the printer is heating) flips the job to done in ~10 s.
+        # If we never see RUNNING within the startup grace window the printer
+        # almost certainly silently aborted (the classic "ack but no print"
+        # mode) and we mark the job failed with a real reason.
         from core.printer import get_status
+        seen_running   = False
+        startup_grace  = 30  # number of poll cycles (~5 min @ 10 s) to see RUNNING
+        polls_so_far   = 0
+
         for _ in range(2880):  # 8 h at 10 s intervals
             await asyncio.sleep(10)
+            polls_so_far += 1
             try:
                 status = await get_status()
                 if "error" in status:
@@ -227,14 +239,34 @@ class PrintQueue:
                 if "." in state_str:          # strip enum prefix e.g. GcodeState.IDLE
                     state_str = state_str.split(".")[-1]
                 await self._set(job_id, progress=progress)
-                if state_str in ("IDLE", "FINISH", "FINISHED"):
-                    break
+
+                if state_str in ("RUNNING", "PRINTING"):
+                    seen_running = True
+                    continue
+
                 if state_str in ("FAILED", "STOP"):
                     await self._set(
                         job_id, state="failed",
                         error=f"Printer reported: {state_str}", completed_at=_now(),
                     )
                     return
+
+                if state_str in ("IDLE", "FINISH", "FINISHED"):
+                    if seen_running:
+                        break  # genuine completion
+                    if polls_so_far >= startup_grace:
+                        await self._set(
+                            job_id, state="failed",
+                            error=(
+                                "Printer never entered RUNNING state — most likely "
+                                "the job was silently aborted (missing user_id, "
+                                "AMS error, or rejected file). Check the printer "
+                                "touchscreen for the actual reason."
+                            ),
+                            completed_at=_now(),
+                        )
+                        return
+                    # still in startup grace — keep waiting for RUNNING
             except Exception:
                 pass  # transient error — keep polling
 
