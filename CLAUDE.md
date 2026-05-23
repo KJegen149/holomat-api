@@ -57,25 +57,37 @@ All performance estimates (compile times, timeout values, memory budgets) should
 - New routes: `POST /api/generate/openscad`, `GET /api/generate/stl/{filename}`, `POST /api/generate/compile-case`.
 
 ## Phase 7 implementation notes (Bambu P1S print queue)
-- Printer runs firmware **01.08.02**, **LAN-only mode**, **Developer Mode ON**.
+- Printer firmware tested: **01.08.00** (works) and **01.08.02** (works).
+- **LAN-only mode is NOT required.** LAN MQTT commands work fine on a cloud-connected printer as long as **Developer Mode is ON**. Bambu Handy / Bambu Studio continue to work normally alongside Holomat. Default config: `BAMBU_USE_CLOUD=false`.
 - Print dispatch: FTPS upload (port 990, implicit TLS) → LAN MQTT `project_file` command (port 8883).
 - Critical URL format: `file:///sdcard/cache/{filename}` — NOT `ftp:///cache/`. The `ftp://` scheme is X1C-only; P1S silently no-ops with `result:success` but never starts.
-- `user_id` is mandatory in the MQTT payload. Without it the printer accepts the command then immediately aborts (shows "incoming 3MF" then "Finished" with no physical action). Fetched via `_get_user_id()` which authenticates with Bambu cloud using `BAMBU_EMAIL` + `BAMBU_PASSWORD`.
+- `user_id` is mandatory in the MQTT payload. Without it the printer accepts the command then immediately aborts (shows "incoming 3MF" then "Finished" with no physical action). Fetched via `_get_user_id()` which authenticates with Bambu cloud using `BAMBU_EMAIL` + `BAMBU_PASSWORD`. (Still needed even on the LAN path — the printer enforces this regardless of transport.)
+- MQTT lock (`core/printer.py`): a single asyncio lock serialises status polls and trigger commands on the printer's MQTT connection. Without it, a concurrent status poll can clobber the `project_file` publish and the printer never sees the trigger (manifests as "FTP OK but no print"). Fixed in commit `dfd4fd8`.
 - Panda Touch (BTT): WiFi-only device, USB is charging only. Has NO HTTP control API — all non-root HTTP responses are ESP32 catch-all 500s. Useful as a touchscreen upgrade only.
-- Cloud MQTT path preserved in `_cloud_send_and_print()` but not the active path — printer is in LAN-only mode.
+- Cloud MQTT path (`_cloud_send_and_print()`, gated by `BAMBU_USE_CLOUD=true`) is **non-functional** — the upload succeeds but the printer never starts because the cloud project-registration step is missing from `bambulabs-api`. Reverse-engineering that endpoint is parked; LAN is the working path.
 - LAN archive: `core/printer_lan.py` is a full copy of the working LAN implementation before cloud additions (rollback reference).
-- ACS signing: `core/bambu_signing.py` — RSA-SHA256 with community-extracted Bambu Connect key. Required for cloud MQTT path only; LAN MQTT does not need signing.
-- `.env` loaded automatically at startup via `python-dotenv`. `BAMBU_ACCESS_CODE` changes each time printer switches between cloud/LAN mode.
-- Print queue worker: `core/print_queue.py` — job lifecycle: queued → slicing → uploading → printing → done/failed/cancelled. Persists to `scan_data/print_queue.json`.
+- ACS signing: `core/bambu_signing.py` — RSA-SHA256 with community-extracted Bambu Connect key. Retained as scaffolding for a future cloud-path revival; unused by the active LAN path.
+- `.env` loaded automatically at startup via `python-dotenv`. `BAMBU_ACCESS_CODE` changes each time the printer switches between cloud/LAN mode toggles on the printer itself (so check it after any Network setting change).
+- Print queue worker: `core/print_queue.py` — job lifecycle: queued → slicing → uploading → printing → done/failed/cancelled. Persists to `scan_data/print_queue.json`. NB: "done" currently means "dispatch handed to printer", not "physical print finished" — there is no in-progress polling loop yet.
 
-## Phase 7 — PENDING: final end-to-end test (revisit after Phase 9)
-*Phase 7 code is complete and merged to master. Full pipeline was confirmed working mid-session (AUTO-STARTED ✓) but final CLI test at close of session did not print. Revisit after Phase 9 Settings UI is live so credentials are properly persisted.*
+## Phase 7 — CONFIRMED working end-to-end (Phase 10 QA, 2026-05)
+Full LAN pipeline verified on `KJLC-AI-01` → P1S (firmware 01.08.00, Developer Mode ON, cloud-connected):
+queue → slice → FTP upload → MQTT `project_file` → printer ACKs `result: "success"` → physical print starts (heating, AMS pick, layer 1).
 
-Likely causes to investigate on return:
-- `BAMBU_ACCESS_CODE` may have rotated — verify current code on printer (Settings → Network)
-- `.env` does not exist on the laptop yet — created only in dev environment. Either create it manually or let Phase 9 Settings write it.
-- Bambu cloud auth (`_get_user_id`) may require MFA/OTP — check if `BAMBU_EMAIL`+`BAMBU_PASSWORD` alone is sufficient or if token cache needs priming first (run `scripts/test_bambu_print.py` and watch for auth errors in output)
-- The systemd override `override.conf` may have stale `BAMBU_ACCESS_CODE` — check with `sudo systemctl cat holomat-api`
+Working config (in `.env`):
+```
+BAMBU_USE_CLOUD=false
+BAMBU_IP=<lan ip>
+BAMBU_ACCESS_CODE=<8-digit code from printer Settings → Network>
+BAMBU_SERIAL=<printer serial>
+BAMBU_EMAIL=<bambu account email>     # required for user_id lookup
+BAMBU_PASSWORD=<bambu account password>
+```
+
+Followups (not blockers):
+- The print queue marks jobs `done` immediately after dispatch ACK, not after physical print completion. Add a status-polling loop if true completion tracking is wanted.
+- `BAMBU_ACCESS_CODE` rotates whenever LAN/Cloud mode is toggled on the printer — surface a clearer "stale access code" error in the UI when MQTT auth fails.
+- Phase 9 Settings UI should write these credentials so they don't have to be hand-edited into `.env`.
 
 ## Phase 9 implementation notes (Settings UI) — planned scope
 *Confirmed in Phase 7 chat — implement in Phase 9 chat.*
