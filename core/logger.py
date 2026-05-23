@@ -4,35 +4,45 @@ import sys
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
-# Broadcast callable injected by main.py after WS manager is ready
+# Broadcast callable + running event loop — wired by main.py's lifespan via
+# set_broadcast(), which runs inside the loop so the loop can be captured.
 _broadcast: Optional[Callable] = None
+_loop: Optional[asyncio.AbstractEventLoop] = None
 
 
 def set_broadcast(fn: Callable) -> None:
-    global _broadcast
+    global _broadcast, _loop
     _broadcast = fn
+    try:
+        _loop = asyncio.get_running_loop()
+    except RuntimeError:
+        _loop = None
 
 
 class _WebSocketHandler(logging.Handler):
-    """Forwards log records to all connected WebSocket clients."""
+    """Forwards log records to all connected WebSocket clients.
+
+    emit() may be called from any thread (the HA bridge, the print-queue
+    worker and the voice-bridge daemon all log), so the broadcast is
+    marshalled onto the captured event loop with call_soon_threadsafe.
+    """
 
     def emit(self, record: logging.LogRecord) -> None:
-        if _broadcast is None:
+        if _broadcast is None or _loop is None:
             return
+        payload = {
+            "type": "log",
+            "level": record.levelname,
+            "name": record.name,
+            "message": self.format(record),
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.ensure_future(
-                    _broadcast({
-                        "type": "log",
-                        "level": record.levelname,
-                        "name": record.name,
-                        "message": self.format(record),
-                        "ts": datetime.now(timezone.utc).isoformat(),
-                    })
-                )
-        except Exception:
-            pass
+            _loop.call_soon_threadsafe(
+                lambda: asyncio.ensure_future(_broadcast(payload))
+            )
+        except RuntimeError:
+            pass  # event loop already closed (shutdown)
 
 
 def setup_logging() -> None:
@@ -48,14 +58,20 @@ def setup_logging() -> None:
     sh.setFormatter(fmt)
     root.addHandler(sh)
 
-    # WebSocket broadcast handler
+    # WebSocket broadcast handler — the UI receives ts + level as structured
+    # fields and renders them itself, so the broadcast message carries only the
+    # logger name + text (using `fmt` here would double the ts/level in the UI).
     wsh = _WebSocketHandler()
-    wsh.setFormatter(fmt)
+    wsh.setFormatter(logging.Formatter("%(name)-28s %(message)s"))
     root.addHandler(wsh)
 
     # Quiet noisy libraries
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("watchdog").setLevel(logging.WARNING)
+    # bambulabs_api logs ERROR-level noise on every MQTT connect handshake
+    # ("Not connected...", "Printer Values Not Available Yet") that clears on
+    # its own — real printer state comes from the dry-run / status endpoint.
+    logging.getLogger("bambulabs_api").setLevel(logging.CRITICAL)
 
 
 def get_logger(name: str) -> logging.Logger:

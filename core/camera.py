@@ -1,6 +1,5 @@
 """
 Camera management — OpenCV device lifecycle, MJPEG streaming.
-Implemented in Phase 1 (calibration) and Phase 4 (scanning).
 """
 import asyncio
 import os
@@ -61,7 +60,7 @@ class CameraManager:
 
     async def mjpeg_stream(self):
         """Async generator yielding MJPEG multipart frames as bytes."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         delay = 1.0 / STREAM_FPS
         opened = await loop.run_in_executor(None, self.open)
         if not opened:
@@ -71,9 +70,12 @@ class CameraManager:
             if not ret or frame is None:
                 await asyncio.sleep(0.1)
                 continue
-            _, buf = cv2.imencode(
+            ok, buf = cv2.imencode(
                 ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY]
             )
+            if not ok:
+                await asyncio.sleep(0.1)
+                continue
             yield (
                 b"--frame\r\n"
                 b"Content-Type: image/jpeg\r\n\r\n"

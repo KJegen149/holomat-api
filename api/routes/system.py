@@ -1,5 +1,4 @@
 import os
-import shutil
 import platform
 from datetime import datetime, timezone
 
@@ -15,12 +14,10 @@ from core.ha_bridge import ha_bridge
 from core.scanner import background_captured_at, get_library
 from api.websocket import manager as ws_manager
 from core.logger import get_logger
+from core.version import VERSION
 
 log = get_logger(__name__)
 router = APIRouter()
-
-VERSION = "0.6.0"
-BUILD_PHASE = "Phase 6 — SMB Gallery"
 
 
 @router.get("/health")
@@ -29,7 +26,6 @@ async def health() -> JSONResponse:
     return JSONResponse({
         "status": "ok",
         "version": VERSION,
-        "phase": BUILD_PHASE,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "system": {
             "platform": platform.platform(),

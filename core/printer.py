@@ -1,16 +1,15 @@
 """
 Bambu Lab P1S — LAN-mode print dispatch with cloud auth for user_id.
 
-Active path (LAN-only mode, Developer Mode ON, firmware 01.08.02):
+Verified working on firmware 01.08.00 and 01.08.02 with Developer Mode ON.
+The printer can stay cloud-connected (Bambu Handy / Studio keep working) —
+LAN-only mode is NOT required.
+
   Auth:     BAMBU_EMAIL + BAMBU_PASSWORD → Bambu cloud → fetch user_id only
   Upload:   implicit FTPS port 990 → printer /cache/
   Trigger:  LAN MQTT project_file command (port 8883, file:///sdcard/cache/ URL)
-  Auto-starts without touchscreen confirmation.
-  Requires: BAMBU_IP, BAMBU_ACCESS_CODE, BAMBU_SERIAL, BAMBU_EMAIL, BAMBU_PASSWORD
 
-Cloud path (preserved, not active — printer is in LAN-only mode):
-  Requires: BAMBU_EMAIL, BAMBU_PASSWORD, BAMBU_SERIAL
-  See _cloud_send_and_print() and core/bambu_signing.py.
+Required env: BAMBU_IP, BAMBU_ACCESS_CODE, BAMBU_SERIAL, BAMBU_EMAIL, BAMBU_PASSWORD
 """
 import asyncio
 import ftplib
@@ -18,6 +17,7 @@ import json
 import os
 import socket
 import ssl
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -27,16 +27,8 @@ from core.logger import get_logger
 
 log = get_logger(__name__)
 
-# ── Shared env vars ───────────────────────────────────────────────────────────
+# ── Env vars ──────────────────────────────────────────────────────────────────
 BAMBU_SERIAL      = os.getenv("BAMBU_SERIAL", "")
-
-# ── Cloud-mode credentials ────────────────────────────────────────────────────
-BAMBU_EMAIL       = os.getenv("BAMBU_EMAIL", "")
-BAMBU_PASSWORD    = os.getenv("BAMBU_PASSWORD", "")
-BAMBU_TOKEN_FILE  = os.getenv("BAMBU_TOKEN_FILE", "scan_data/.bambu_token")
-BAMBU_REGION      = os.getenv("BAMBU_REGION", "global")   # "global" or "china"
-
-# ── LAN-mode credentials (fallback) ──────────────────────────────────────────
 BAMBU_IP          = os.getenv("BAMBU_IP", "")
 BAMBU_ACCESS_CODE = os.getenv("BAMBU_ACCESS_CODE", "")
 BAMBU_CERT        = os.getenv("BAMBU_CERT", "certs/printer.pem")
@@ -44,8 +36,23 @@ BAMBU_FTP_PORT    = int(os.getenv("BAMBU_FTP_PORT") or "990")
 BAMBU_MQTT_PORT   = int(os.getenv("BAMBU_MQTT_PORT") or "8883")
 BAMBU_AMS_SLOT    = int(os.getenv("BAMBU_AMS_SLOT") or "0")
 
+# Cloud auth (needed only to look up user_id, which the LAN MQTT payload requires).
+BAMBU_EMAIL       = os.getenv("BAMBU_EMAIL", "")
+BAMBU_PASSWORD    = os.getenv("BAMBU_PASSWORD", "")
+BAMBU_TOKEN_FILE  = os.getenv("BAMBU_TOKEN_FILE", "scan_data/.bambu_token")
+BAMBU_REGION      = os.getenv("BAMBU_REGION", "global")   # "global" or "china"
+
+
+class PrinterAuthError(RuntimeError):
+    """Raised when printer-side auth or Bambu cloud auth fails in a way the user can fix.
+
+    These messages are surfaced verbatim in the Print tab's failed-job error field,
+    so they need to read like instructions, not stack traces.
+    """
+
 
 def is_cloud_configured() -> bool:
+    """True iff we can reach Bambu cloud to look up the user_id."""
     return bool(BAMBU_EMAIL and BAMBU_PASSWORD and BAMBU_SERIAL)
 
 
@@ -54,7 +61,13 @@ def is_lan_configured() -> bool:
 
 
 def is_configured() -> bool:
-    return is_cloud_configured() or is_lan_configured()
+    return is_lan_configured()
+
+
+# Serialises all printer-MQTT access — the P1S broker rejects new connections
+# when the status poll and the print trigger try to connect at the same time.
+_PRINTER_MQTT_LOCK = threading.Lock()
+_LAST_STATUS: dict = {}
 
 
 # ── Status (LAN MQTT) ─────────────────────────────────────────────────────────
@@ -76,6 +89,10 @@ async def get_status() -> dict:
     loop = asyncio.get_running_loop()
 
     def _poll() -> dict:
+        global _LAST_STATUS
+        if not _PRINTER_MQTT_LOCK.acquire(blocking=False):
+            # a print dispatch holds the printer's MQTT — don't compete for it
+            return _LAST_STATUS or {"state": "BUSY", "detail": "print dispatch in progress"}
         printer = bl.Printer(
             ip_address=BAMBU_IP,
             access_code=BAMBU_ACCESS_CODE,
@@ -107,18 +124,20 @@ async def get_status() -> dict:
                 except Exception:
                     pass
 
-            return {
+            _LAST_STATUS = {
                 "state": state,
                 "nozzle_temp": printer.get_nozzle_temperature(),
                 "bed_temp": printer.get_bed_temperature(),
                 "progress": printer.get_percentage(),
                 "current_file": current_file,
             }
+            return _LAST_STATUS
         finally:
             try:
                 printer.disconnect()
             except Exception:
                 pass
+            _PRINTER_MQTT_LOCK.release()
 
     try:
         return await loop.run_in_executor(None, _poll)
@@ -127,152 +146,15 @@ async def get_status() -> dict:
         return {"error": str(e)}
 
 
-# ── Cloud upload + print trigger ──────────────────────────────────────────────
+# ── Bambu cloud auth (for user_id lookup only) ────────────────────────────────
 
 def _get_bambu_client():
-    """Authenticate with Bambu cloud and return a BambuClient."""
+    """Authenticate with Bambu cloud and return a BambuClient (for user_id lookup)."""
     from bambulab import BambuAuthenticator, BambuClient  # type: ignore
     Path(BAMBU_TOKEN_FILE).parent.mkdir(parents=True, exist_ok=True)
     auth = BambuAuthenticator(region=BAMBU_REGION, token_file=BAMBU_TOKEN_FILE)
     token = auth.get_or_create_token(username=BAMBU_EMAIL, password=BAMBU_PASSWORD)
     return BambuClient(token=token)
-
-
-def _cloud_send_and_print(path_3mf: str) -> dict:
-    """
-    Upload 3MF to Bambu cloud S3, then dispatch via cloud MQTT.
-
-    Cloud MQTT (us.mqtt.bambulab.com) relays the project_file command through
-    Bambu's trusted infrastructure, which auto-starts the print on the printer
-    without requiring touchscreen confirmation.
-    """
-    import requests as _requests
-    import paho.mqtt.client as mqtt  # type: ignore
-    client = _get_bambu_client()
-    filename = Path(path_3mf).name
-
-    # ── Step 1: Upload to S3 ─────────────────────────────────────────────────
-    file_size = Path(path_3mf).stat().st_size
-    log.info("Cloud: requesting upload URL for %s (%d bytes)", filename, file_size)
-    upload_info = client.get_upload_url(filename=filename, size=file_size)
-
-    upload_url: str = ""
-    urls_array = upload_info.get("urls", [])
-    size_url: str = ""
-    for entry in urls_array:
-        if isinstance(entry, dict):
-            if entry.get("type") == "filename":
-                upload_url = entry["url"]
-            elif entry.get("type") == "size":
-                size_url = entry["url"]
-    if not upload_url:
-        upload_url = upload_info.get("upload_url", "")
-    if not upload_url:
-        raise RuntimeError(f"No upload URL in Bambu response: {upload_info}")
-
-    log.info("Cloud: uploading to S3 → %s", upload_url[:80] + "…")
-    with open(path_3mf, "rb") as f:
-        resp = _requests.put(upload_url, data=f, headers={}, timeout=120)
-    if resp.status_code >= 400:
-        raise RuntimeError(f"S3 upload failed ({resp.status_code}): {resp.text[:200]}")
-    log.info("Cloud: S3 upload OK (HTTP %d)", resp.status_code)
-    if size_url:
-        try:
-            _requests.put(size_url, data=str(file_size).encode(),
-                          headers={"Content-Type": "text/plain"}, timeout=10)
-        except Exception:
-            pass
-
-    # Permanent (unsigned) S3 URL — Bambu's cloud backend fetches the file from here
-    permanent_url = upload_url.split("?")[0]
-    log.info("Cloud: permanent_url=%s", permanent_url)
-
-    # ── Step 2: Get user UID for cloud MQTT auth ─────────────────────────────
-    user_info = client.get_user_info()
-    uid = str(user_info.get("uid") or user_info.get("userId") or user_info.get("user_id", ""))
-    if not uid:
-        raise RuntimeError(f"Could not determine user UID from: {user_info}")
-    log.info("Cloud: uid=%s", uid)
-
-    # ── Step 3: Connect to cloud MQTT and send project_file ──────────────────
-    CLOUD_BROKER = "us.mqtt.bambulab.com"
-    CLOUD_PORT   = 8883
-
-    # Retrieve the raw access token from the auth layer
-    auth_obj = client._auth if hasattr(client, "_auth") else None
-    access_token: str = ""
-    if auth_obj and hasattr(auth_obj, "token"):
-        access_token = auth_obj.token
-    if not access_token and hasattr(client, "token"):
-        access_token = client.token
-    if not access_token and hasattr(client, "_token"):
-        access_token = client._token
-    if not access_token:
-        # Last resort — re-read from token file
-        token_path = Path(BAMBU_TOKEN_FILE)
-        if token_path.exists():
-            access_token = token_path.read_text().strip()
-    if not access_token:
-        raise RuntimeError("Could not retrieve access token for cloud MQTT")
-
-    connected = False
-
-    def _on_connect(mqttc, userdata, flags, *args):
-        nonlocal connected
-        rc = args[0] if args else 0
-        connected = (rc == 0 if isinstance(rc, int) else rc.value == 0)
-
-    try:
-        mqttc = mqtt.Client(
-            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,  # type: ignore[attr-defined]
-            client_id=f"holomat_{uuid.uuid4().hex[:8]}",
-        )
-    except AttributeError:
-        mqttc = mqtt.Client(client_id=f"holomat_{uuid.uuid4().hex[:8]}")
-
-    mqttc.on_connect = _on_connect
-    mqtt_user = f"u_{uid}" if not uid.startswith("u_") else uid
-    mqttc.username_pw_set(mqtt_user, access_token)
-    mqttc.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLS)
-
-    log.info("Cloud MQTT: connecting to %s:%d as %s", CLOUD_BROKER, CLOUD_PORT, mqtt_user)
-    mqttc.connect(CLOUD_BROKER, CLOUD_PORT, keepalive=60)
-    mqttc.loop_start()
-
-    deadline = time.time() + 15
-    while not connected and time.time() < deadline:
-        time.sleep(0.1)
-    if not connected:
-        mqttc.loop_stop()
-        raise RuntimeError("Cloud MQTT connect timed out after 15 s")
-
-    from core.bambu_signing import sign_mqtt_payload
-    subtask = filename.replace(".3mf", "")
-    seq_id = str(int(time.time() * 1000) % 100000)
-    print_cmd = {
-        "sequence_id": seq_id,
-        "command": "project_file",
-        "param": "Metadata/plate_1.gcode",
-        "subtask_name": subtask,
-        "url": permanent_url,
-        "timelapse": False,
-        "bed_leveling": True,
-        "flow_cali": False,
-        "vibration_cali": False,
-        "layer_inspect": False,
-        "use_ams": False,
-    }
-    # Wrap in ACS signature — required by P1S firmware post-Jan 2025
-    signed = sign_mqtt_payload(print_cmd, uid)
-    topic = f"device/{BAMBU_SERIAL}/request"
-    log.info("Cloud MQTT: publishing ACS-signed project_file → %s (cert=%s)", topic, signed["header"]["cert_id"])
-    mqttc.publish(topic, json.dumps({"print": signed}), qos=0)
-    time.sleep(1)
-    mqttc.loop_stop()
-    mqttc.disconnect()
-
-    log.info("Cloud MQTT: print command sent (seq=%s)", seq_id)
-    return {"filename": filename, "seq_id": seq_id, "cloud_status": "dispatched"}
 
 
 # ── LAN FTP upload ────────────────────────────────────────────────────────────
@@ -358,11 +240,14 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT,
         raise RuntimeError("paho-mqtt not installed — pip install paho-mqtt")
 
     connected = False
+    connect_rc: Optional[int] = None  # captured for clearer error messages on failure
 
     def _on_connect(client, userdata, flags, *args):
-        nonlocal connected
+        nonlocal connected, connect_rc
         rc = args[0] if args else 0
-        connected = (rc == 0 if isinstance(rc, int) else rc.value == 0)
+        rc_int = rc if isinstance(rc, int) else getattr(rc, "value", -1)
+        connect_rc = rc_int
+        connected = (rc_int == 0)
 
     try:
         client = mqtt.Client(
@@ -392,7 +277,20 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT,
 
     if not connected:
         client.loop_stop()
-        raise RuntimeError("MQTT connect to printer timed out after 10 s")
+        # paho rc 4 = bad username/password, rc 5 = not authorized. For Bambu the
+        # MQTT password IS the access code, so both mean "the access code we have
+        # is wrong" — which most often means the code rotated on the printer.
+        if connect_rc in (4, 5):
+            raise PrinterAuthError(
+                f"Printer rejected the access code (MQTT rc={connect_rc}). "
+                "The BAMBU_ACCESS_CODE has likely rotated — check Settings → Network "
+                "on the printer touchscreen and update it under Holomat Settings → "
+                "Bambu Printer → Access Code."
+            )
+        raise RuntimeError(
+            f"MQTT connect to printer timed out after 10 s (rc={connect_rc}). "
+            f"Check that the printer is on, on the LAN, and reachable at {BAMBU_IP}:{BAMBU_MQTT_PORT}."
+        )
 
     report_topic = f"device/{BAMBU_SERIAL}/report"
     client.subscribe(report_topic, qos=0)
@@ -430,32 +328,55 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT,
     msg = {"print": inner}
     topic = f"device/{BAMBU_SERIAL}/request"
 
-    received: list[str] = []
+    msgs: list[dict] = []
 
     def _on_message(client, userdata, message):
         try:
             data = json.loads(message.payload)
-            if "print" in data and "command" in data.get("print", {}):
-                received.append(json.dumps(data["print"]))
+            p = data.get("print")
+            if isinstance(p, dict):
+                msgs.append(p)
         except Exception:
             pass
 
     client.on_message = _on_message
 
     client.publish(topic, json.dumps(msg), qos=0)
-    time.sleep(2)
+
+    # Wait for the printer's verdict on the project_file command. It echoes a
+    # message with command="project_file" carrying a result/reason; capture it
+    # so we know whether the print was accepted, rejected, or silently ignored.
+    project_resp = None
+    deadline = time.time() + 8
+    while time.time() < deadline and project_resp is None:
+        project_resp = next((p for p in msgs if p.get("command") == "project_file"), None)
+        time.sleep(0.2)
+
     client.loop_stop()
     client.disconnect()
 
     log.info("MQTT print trigger sent (seq=%s): %s → %s", seq_id, topic, filename)
-    if received:
-        log.info("Printer ack: %s", received[0])
+    if project_resp is not None:
+        log.info("Printer project_file response: %s", json.dumps(project_resp))
     else:
-        log.info("No ack received from printer within 2 s")
+        log.warning("No project_file response in 8 s — printer did not acknowledge the command.")
+        status = [p for p in msgs if p.get("command") == "push_status"]
+        if status:
+            keys = ("gcode_state", "mc_print_stage", "print_error", "print_type",
+                    "fail_reason", "mc_percent", "subtask_name", "print_gcode_action")
+            snap = {k: status[-1][k] for k in keys if k in status[-1]}
+            log.warning("Printer status after trigger: %s", json.dumps(snap))
+
+
+_OTP_HINTS = ("otp", "verification code", "verification_code", "two-factor",
+              "two factor", "2fa", "mfa", "auth_code", "needs_verify")
 
 
 def _get_user_id() -> str:
-    """Fetch the Bambu account user_id via cloud auth. Returns empty string on failure."""
+    """Fetch the Bambu account user_id via cloud auth. Returns empty string on
+    soft failures; raises PrinterAuthError when the user must take action
+    (e.g. complete an OTP challenge in Bambu Handy).
+    """
     if not is_cloud_configured():
         return ""
     try:
@@ -467,6 +388,13 @@ def _get_user_id() -> str:
             log.info("Cloud auth: user_id=%s", uid)
         return uid
     except Exception as e:
+        msg = str(e).lower()
+        if any(hint in msg for hint in _OTP_HINTS):
+            raise PrinterAuthError(
+                "Bambu cloud needs an OTP verification before it will return a "
+                "user_id. Open Bambu Handy, complete the verification challenge, "
+                "then queue the print again."
+            ) from e
         log.warning("Could not fetch user_id from cloud auth: %s", e)
         return ""
 
@@ -478,7 +406,10 @@ def _lan_send_and_print(path_3mf: str, ams_slot: int = BAMBU_AMS_SLOT) -> dict:
         log.warning("No user_id available — printer may abort job immediately. "
                     "Set BAMBU_EMAIL + BAMBU_PASSWORD to authenticate.")
     filename = _ftp_upload(path_3mf)
-    _mqtt_print_trigger(filename, ams_slot=ams_slot, user_id=uid)
+    # Hold the printer-MQTT lock so a concurrent status poll cannot occupy the
+    # P1S broker while we connect to send the print command.
+    with _PRINTER_MQTT_LOCK:
+        _mqtt_print_trigger(filename, ams_slot=ams_slot, user_id=uid)
     return {"filename": filename, "ams_slot": ams_slot, "user_id": uid}
 
 
@@ -486,25 +417,19 @@ def _lan_send_and_print(path_3mf: str, ams_slot: int = BAMBU_AMS_SLOT) -> dict:
 
 async def send_and_print(path_3mf: str, ams_slot: int = BAMBU_AMS_SLOT) -> dict:
     """
-    Upload .3mf and trigger print.
+    Upload the .3mf and start the print over LAN.
 
-    Prefers cloud mode (BAMBU_EMAIL + BAMBU_PASSWORD) which auto-starts the print.
-    Falls back to LAN mode (BAMBU_IP + BAMBU_ACCESS_CODE) which requires touchscreen confirmation.
-    Returns {status, filename, mode, ...}.
+    FTPS upload + LAN MQTT project_file command. With a valid user_id the
+    printer auto-starts the job — no touchscreen confirmation needed.
+    Returns {status, mode, filename, ams_slot, user_id}.
     """
-    if not is_configured():
+    if not is_lan_configured():
         raise RuntimeError(
-            "Bambu printer not configured — set BAMBU_EMAIL+BAMBU_PASSWORD+BAMBU_SERIAL "
-            "for cloud mode, or BAMBU_IP+BAMBU_ACCESS_CODE+BAMBU_SERIAL for LAN mode"
+            "Bambu printer not configured — set BAMBU_IP, BAMBU_ACCESS_CODE, "
+            "BAMBU_SERIAL (and BAMBU_EMAIL + BAMBU_PASSWORD so the printer auto-starts)"
         )
 
+    log.info("Using LAN mode for print dispatch")
     loop = asyncio.get_running_loop()
-
-    if is_cloud_configured():
-        log.info("Using cloud mode for print dispatch (auto-start, no confirmation required)")
-        result = await loop.run_in_executor(None, _cloud_send_and_print, path_3mf)
-        return {"status": "sent", "mode": "cloud", **result}
-
-    log.info("Using LAN mode for print dispatch (touchscreen confirmation required)")
     result = await loop.run_in_executor(None, _lan_send_and_print, path_3mf, ams_slot)
     return {"status": "sent", "mode": "lan", **result}

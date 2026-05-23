@@ -1,4 +1,4 @@
-"""Phase 3 — Home Assistant bridge status and manual push endpoints."""
+"""Home Assistant bridge status and manual push endpoints."""
 import os
 from datetime import datetime, timezone
 

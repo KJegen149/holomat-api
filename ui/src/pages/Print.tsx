@@ -73,6 +73,7 @@ function JobRow({ job, onCancel }: { job: PrintJob; onCancel: (id: string) => vo
         <div className="border-t border-j-border bg-j-bg px-3 py-2 space-y-1">
           {[
             ['Profile', job.profile_id],
+            ['AMS', amsSlotLabel(job.ams_slot)],
             ['STL', job.stl_path.split('/').pop() ?? job.stl_path],
             ['Created', new Date(job.created_at).toLocaleString()],
             job.started_at    ? ['Started', new Date(job.started_at).toLocaleString()]    : null,
@@ -155,6 +156,23 @@ function PrinterStatusPanel({ status }: { status: ReturnType<typeof usePrint>['s
 
 // ── Add-to-queue form ────────────────────────────────────────────────────────
 
+// AMS slot options. `value` is what we send to the API; `null` means
+// "use the BAMBU_AMS_SLOT default from Settings".
+const AMS_SLOT_OPTIONS: { value: number | null; label: string }[] = [
+  { value: null, label: 'Default (from Settings)' },
+  { value: -1,   label: 'External Spool (no AMS)' },
+  { value: 0,    label: 'AMS · Slot 1' },
+  { value: 1,    label: 'AMS · Slot 2' },
+  { value: 2,    label: 'AMS · Slot 3' },
+  { value: 3,    label: 'AMS · Slot 4' },
+]
+
+function amsSlotLabel(slot: number | null | undefined): string {
+  if (slot === null || slot === undefined) return 'Default'
+  if (slot === -1) return 'External Spool'
+  return `AMS · Slot ${slot + 1}`
+}
+
 function AddJobForm({
   stls,
   profiles,
@@ -164,18 +182,22 @@ function AddJobForm({
   stls: ReturnType<typeof usePrint>['stls']
   profiles: PrintProfile[]
   loading: boolean
-  onAdd: (stl: string, profile: string, name: string) => void
+  onAdd: (stl: string, profile: string, name: string, ams_slot: number | null) => void
 }) {
   const [selectedStl,     setSelectedStl]     = useState('')
   const [selectedProfile, setSelectedProfile] = useState('standard')
   const [jobName,         setJobName]         = useState('')
+  // Stored as string ('' = default) so the <select> stays controlled cleanly;
+  // converted to number | null at submit time.
+  const [selectedSlot,    setSelectedSlot]    = useState<string>('')
 
   const selectCls = `w-full bg-j-bg border border-j-border text-j-text font-mono text-[10px]
                      rounded-sm px-2 py-1.5 focus:outline-none focus:border-j-cyan`
 
   function handleAdd() {
     if (!selectedStl) return
-    onAdd(selectedStl, selectedProfile, jobName.trim())
+    const ams_slot = selectedSlot === '' ? null : parseInt(selectedSlot, 10)
+    onAdd(selectedStl, selectedProfile, jobName.trim(), ams_slot)
     setJobName('')
   }
 
@@ -193,7 +215,8 @@ function AddJobForm({
         </select>
         {stls.length === 0 && (
           <div className="font-mono text-[9px] text-j-cdim mt-1">
-            No STL files found — compile a model in the Scanner tab first.
+            No STL files — generate a case in the Scanner tab, or drop a .stl
+            into the HolomatSTL share.
           </div>
         )}
       </div>
@@ -206,6 +229,23 @@ function AddJobForm({
           {profiles.map(p => (
             <option key={p.id} value={p.id}>
               {p.name} — {p.layer_height}mm / {p.infill_percent}% infill
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label className="block font-mono text-[9px] text-j-muted tracking-[0.1em] uppercase mb-1">
+          AMS Slot
+        </label>
+        <select
+          className={selectCls}
+          value={selectedSlot}
+          onChange={e => setSelectedSlot(e.target.value)}
+        >
+          {AMS_SLOT_OPTIONS.map(o => (
+            <option key={o.label} value={o.value === null ? '' : String(o.value)}>
+              {o.label}
             </option>
           ))}
         </select>
@@ -366,7 +406,7 @@ export default function Print() {
       <div className="flex-1 flex flex-col overflow-hidden border-r border-j-border">
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-j-border bg-j-surf flex-shrink-0">
           <span className="text-[11px] font-bold tracking-[0.2em] text-j-cyan uppercase font-sans">
-            PRINT QUEUE // <span className="text-j-muted font-normal">PHASE 7</span>
+            PRINT QUEUE
           </span>
           <button
             onClick={refreshQueue}

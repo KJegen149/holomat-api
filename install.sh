@@ -15,7 +15,7 @@ for arg in "$@"; do
   esac
 done
 
-echo "=== Holomat v0.2.0 install ==="
+echo "=== Holomat install ==="
 echo "  Script dir : $SCRIPT_DIR"
 echo "  Samba      : $WITH_SAMBA"
 echo "  Kiosk UI   : $WITH_KIOSK"
@@ -97,14 +97,16 @@ else
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────
+HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo ""
 echo "=== Install complete ==="
-echo "  API        : http://10.11.12.129:8100"
-echo "  Health     : curl http://10.11.12.129:8100/api/health"
-echo "  API docs   : http://10.11.12.129:8100/api/docs"
+echo "  API        : http://${HOST_IP:-<host>}:8100"
+echo "  Health     : curl http://${HOST_IP:-<host>}:8100/api/health"
+echo "  API docs   : http://${HOST_IP:-<host>}:8100/api/docs"
 echo "  Logs       : journalctl -u holomat-api -f"
 echo ""
-echo "Next: set CF_API_KEY and OPENAI_API_KEY in the service:"
-echo "  sudo systemctl edit holomat-api"
-echo "  Add: Environment=CF_API_KEY=your_key_here"
-echo "       Environment=OPENAI_API_KEY=your_key_here"
+echo "Next: set GEMINI_API_KEY and CF_API_KEY via the Settings UI:"
+echo "  Open http://${HOST_IP:-<host>}:8100/settings"
+echo "  or:  sudo systemctl edit holomat-api"
+echo "       Environment=GEMINI_API_KEY=your_key_here"
+echo "       Environment=CF_API_KEY=your_key_here"

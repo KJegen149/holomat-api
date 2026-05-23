@@ -379,7 +379,7 @@ export default function Scanner() {
       <div className="w-[320px] flex flex-col bg-j-surf flex-shrink-0 overflow-hidden">
         <div className="px-5 py-3 border-b border-j-border flex-shrink-0">
           <span className="text-[11px] font-bold tracking-[0.2em] text-j-cyan uppercase font-sans">
-            SCANNER // <span className="text-j-muted font-normal">PHASE 5</span>
+            SCANNER
           </span>
         </div>
 

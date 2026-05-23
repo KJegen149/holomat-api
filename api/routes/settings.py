@@ -1,16 +1,41 @@
-"""Settings API routes — Phase 9."""
+"""Settings API routes."""
 import asyncio
 import os
+import re
+import secrets
 import socket
+import threading
 from pathlib import Path
 from urllib import request as urllib_req, error as urllib_err
 from urllib.parse import urlparse
-from fastapi import APIRouter
+
+from dotenv import dotenv_values
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter(tags=["settings"])
-
 ENV_FILE = Path(__file__).parent.parent.parent / ".env"
+
+# Admin gate: when HOLOMAT_ADMIN_KEY is set, every /api/settings request must
+# carry a matching X-Admin-Key header. When unset the gate is open (so an
+# unconfigured install is not locked out) — set the key to require auth.
+_ADMIN_KEY = os.getenv("HOLOMAT_ADMIN_KEY", "")
+
+# Guards .env read-modify-write so concurrent saves cannot interleave
+_ENV_LOCK = threading.Lock()
+
+# A valid environment-variable name
+_VALID_KEY = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+
+def _require_admin(x_admin_key: str = Header(default="")) -> None:
+    """Router-wide gate for the Settings API."""
+    if not _ADMIN_KEY:
+        return
+    if not secrets.compare_digest(x_admin_key, _ADMIN_KEY):
+        raise HTTPException(status_code=401, detail="Invalid or missing admin key")
+
+
+router = APIRouter(tags=["settings"], dependencies=[Depends(_require_admin)])
 
 SENSITIVE_KEYS = {
     "BAMBU_PASSWORD",
@@ -58,33 +83,40 @@ KNOWN_KEYS = [
 
 
 def _read_env() -> dict[str, str]:
-    """Parse .env file without inheriting the process environment."""
+    """Parse .env via python-dotenv — the same loader main.py uses at startup,
+    so `export `, inline comments and quoting are handled consistently."""
     if not ENV_FILE.exists():
         return {}
-    result: dict[str, str] = {}
-    for line in ENV_FILE.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" in line:
-            key, _, val = line.partition("=")
-            result[key.strip()] = val.strip().strip("\"'")
-    return result
+    return {k: v for k, v in dotenv_values(ENV_FILE).items() if v is not None}
+
+
+def _env_quote(val: str) -> str:
+    """Double-quote and escape a value for safe .env round-tripping."""
+    escaped = (
+        val.replace("\\", "\\\\")
+           .replace('"', '\\"')
+           .replace("\n", "\\n")
+           .replace("\r", "\\r")
+    )
+    return f'"{escaped}"'
 
 
 def _write_env(data: dict[str, str]) -> None:
-    """Write dict to .env; only non-empty values are written so systemd defaults aren't stomped."""
+    """Atomically write .env. Values are quoted/escaped (no newline injection),
+    and only non-empty values are written so systemd defaults aren't stomped."""
     lines: list[str] = []
     written: set[str] = set()
     for key in KNOWN_KEYS:
         val = data.get(key, "")
         if val:
-            lines.append(f"{key}={val}\n")
+            lines.append(f"{key}={_env_quote(val)}\n")
         written.add(key)
     for key, val in data.items():
-        if key not in written and val:
-            lines.append(f"{key}={val}\n")
-    ENV_FILE.write_text("".join(lines))
+        if key not in written and val and _VALID_KEY.match(key):
+            lines.append(f"{key}={_env_quote(val)}\n")
+    tmp = ENV_FILE.with_name(ENV_FILE.name + ".tmp")
+    tmp.write_text("".join(lines))
+    tmp.replace(ENV_FILE)
 
 
 def _resolve(key: str, env_file: dict[str, str]) -> str:
@@ -102,7 +134,11 @@ async def get_settings():
     for key in KNOWN_KEYS:
         val = _resolve(key, raw)
         result[key] = MASK if (key in SENSITIVE_KEYS and val) else val
-    return {"settings": result, "env_file_exists": ENV_FILE.exists()}
+    return {
+        "settings": result,
+        "env_file_exists": ENV_FILE.exists(),
+        "auth_enabled": bool(_ADMIN_KEY),
+    }
 
 
 # ── POST /api/settings ───────────────────────────────────────────────────────
@@ -113,16 +149,17 @@ class SettingsBody(BaseModel):
 
 @router.post("")
 async def save_settings(body: SettingsBody):
-    raw = _read_env()
-    for key, value in body.settings.items():
-        if key not in KNOWN_KEYS:
-            continue
-        if key in SENSITIVE_KEYS:
-            if value and value != MASK:
+    with _ENV_LOCK:
+        raw = _read_env()
+        for key, value in body.settings.items():
+            if key not in KNOWN_KEYS:
+                continue
+            if key in SENSITIVE_KEYS:
+                if value and value != MASK:
+                    raw[key] = value
+            else:
                 raw[key] = value
-        else:
-            raw[key] = value
-    _write_env(raw)
+        _write_env(raw)
     return {"saved": True, "restart_required": True}
 
 
@@ -199,7 +236,7 @@ async def test_connections():
             return tcp
         if not key:
             return {"ok": False, "detail": "Worker reachable but CF_API_KEY not set"}
-        return {"ok": True, "detail": f"Worker reachable, key set"}
+        return {"ok": True, "detail": "Worker reachable, key set"}
 
     async def _ha_token() -> dict:
         url = _resolve("HA_URL", env)
@@ -389,7 +426,6 @@ async def bambu_cloud_auth(body: BambuAuthBody):
     token_file = _resolve("BAMBU_TOKEN_FILE", env) or "scan_data/.bambu_token"
 
     if not email or not password:
-        from fastapi import HTTPException
         raise HTTPException(400, "BAMBU_EMAIL and BAMBU_PASSWORD must be set first")
 
     loop = asyncio.get_running_loop()

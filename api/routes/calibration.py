@@ -49,7 +49,7 @@ async def calibration_status() -> JSONResponse:
 @router.post("/capture")
 async def capture_frame() -> JSONResponse:
     """Grab a frame from the camera and attempt ChArUco corner detection."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     session = _get_or_create_session()
 
     opened = await loop.run_in_executor(None, camera.open)
@@ -96,7 +96,7 @@ async def compute_calibration() -> JSONResponse:
             status_code=400,
         )
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         data = await loop.run_in_executor(None, session.compute)
     except ValueError as exc:

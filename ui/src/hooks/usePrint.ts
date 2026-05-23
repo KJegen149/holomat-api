@@ -67,12 +67,14 @@ export function usePrint() {
     refreshStls()
     refreshProfiles()
 
-    // Poll status every 5 s, queue every 8 s
+    // Poll status every 5 s, queue every 8 s, STL list every 15 s
     const statusId = setInterval(refreshStatus, 5_000)
     const queueId  = setInterval(refreshQueue,  8_000)
+    const stlId    = setInterval(refreshStls,  15_000)
     return () => {
       clearInterval(statusId)
       clearInterval(queueId)
+      clearInterval(stlId)
     }
   }, [refreshStatus, refreshQueue, refreshStls, refreshProfiles])
 
@@ -80,11 +82,12 @@ export function usePrint() {
     stl_filename: string,
     profile_id: string,
     name?: string,
+    ams_slot?: number | null,
   ) => {
     setLoading(true)
     setError(null)
     try {
-      await queuePrintJob(stl_filename, profile_id, name)
+      await queuePrintJob(stl_filename, profile_id, name, ams_slot)
       await refreshQueue()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to queue job')

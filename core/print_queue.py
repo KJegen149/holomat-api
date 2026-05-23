@@ -111,13 +111,20 @@ class PrintQueue:
 
     # ── Job management ──────────────────────────────────────────────────────
 
-    async def add_job(self, name: str, stl_path: str, profile_id: str) -> dict:
+    async def add_job(
+        self,
+        name: str,
+        stl_path: str,
+        profile_id: str,
+        ams_slot: Optional[int] = None,
+    ) -> dict:
         async with self._lock:
             job: dict = {
                 "id": str(uuid.uuid4()),
                 "name": name,
                 "stl_path": stl_path,
                 "profile_id": profile_id,
+                "ams_slot": ams_slot,  # None = use BAMBU_AMS_SLOT env default at print time
                 "state": "queued",
                 "created_at": _now(),
                 "started_at": None,
@@ -128,7 +135,8 @@ class PrintQueue:
             }
             self._jobs.append(job)
             self._save_jobs()
-            log.info("Print job queued: %s (%s)", name, job["id"])
+            log.info("Print job queued: %s (%s, ams_slot=%s)",
+                     name, job["id"], ams_slot if ams_slot is not None else "default")
             return job
 
     def get_jobs(self) -> list[dict]:
@@ -171,24 +179,30 @@ class PrintQueue:
         profile = self.get_profile(job["profile_id"]) or self.get_profile("standard")
         assert profile is not None
 
+        # Resolve AMS slot: per-job override → env default → 0
+        import os as _os
+        if job.get("ams_slot") is not None:
+            ams_slot = int(job["ams_slot"])
+        else:
+            ams_slot = int(_os.getenv("BAMBU_AMS_SLOT", "0"))
+
         # ── 1. Slice STL → 3MF ────────────────────────────────────────────
         await self._set(job_id, state="slicing", started_at=_now())
-        log.info("Slicing: %s", job["stl_path"])
+        log.info("Slicing: %s (ams_slot=%d)", job["stl_path"], ams_slot)
         try:
             from core.slicer import slice_model, orca_available
             if not orca_available():
                 raise RuntimeError(
-                    f"OrcaSlicer not found at {__import__('os').getenv('ORCA_CLI', '/usr/bin/orca-slicer')!r} — "
+                    f"OrcaSlicer not found at {_os.getenv('ORCA_CLI', '/usr/bin/orca-slicer')!r} — "
                     "install OrcaSlicer and set ORCA_CLI env var"
                 )
-            import os as _os
             three_mf_path = await slice_model(
                 input_path=job["stl_path"],
                 quality=job["profile_id"] if profile.get("is_builtin") else "standard",
                 infill=profile["infill_percent"],
                 supports=profile["supports"],
                 output_dir=str(THREE_MF_DIR),
-                ams_slot=int(_os.getenv("BAMBU_AMS_SLOT", "0")),
+                ams_slot=ams_slot,
             )
         except Exception as e:
             log.error("Slice failed: %s", e)
@@ -206,7 +220,7 @@ class PrintQueue:
                 raise RuntimeError(
                     "Bambu printer not configured — set BAMBU_IP, BAMBU_ACCESS_CODE, BAMBU_SERIAL"
                 )
-            await send_and_print(three_mf_path)
+            await send_and_print(three_mf_path, ams_slot=ams_slot)
         except Exception as e:
             log.error("Upload/print trigger failed: %s", e)
             await self._set(job_id, state="failed", error=str(e), completed_at=_now())
@@ -215,9 +229,21 @@ class PrintQueue:
         await self._set(job_id, state="printing")
 
         # ── 3. Poll printer until done (up to 8 h) ────────────────────────
+        # State machine for a fresh job: IDLE → PREPARE → RUNNING → FINISH → IDLE.
+        # We MUST see RUNNING at least once before treating IDLE/FINISH as
+        # completion — otherwise the first poll after dispatch (still IDLE
+        # because the printer is heating) flips the job to done in ~10 s.
+        # If we never see RUNNING within the startup grace window the printer
+        # almost certainly silently aborted (the classic "ack but no print"
+        # mode) and we mark the job failed with a real reason.
         from core.printer import get_status
+        seen_running   = False
+        startup_grace  = 30  # number of poll cycles (~5 min @ 10 s) to see RUNNING
+        polls_so_far   = 0
+
         for _ in range(2880):  # 8 h at 10 s intervals
             await asyncio.sleep(10)
+            polls_so_far += 1
             try:
                 status = await get_status()
                 if "error" in status:
@@ -227,14 +253,34 @@ class PrintQueue:
                 if "." in state_str:          # strip enum prefix e.g. GcodeState.IDLE
                     state_str = state_str.split(".")[-1]
                 await self._set(job_id, progress=progress)
-                if state_str in ("IDLE", "FINISH", "FINISHED"):
-                    break
+
+                if state_str in ("RUNNING", "PRINTING"):
+                    seen_running = True
+                    continue
+
                 if state_str in ("FAILED", "STOP"):
                     await self._set(
                         job_id, state="failed",
                         error=f"Printer reported: {state_str}", completed_at=_now(),
                     )
                     return
+
+                if state_str in ("IDLE", "FINISH", "FINISHED"):
+                    if seen_running:
+                        break  # genuine completion
+                    if polls_so_far >= startup_grace:
+                        await self._set(
+                            job_id, state="failed",
+                            error=(
+                                "Printer never entered RUNNING state — most likely "
+                                "the job was silently aborted (missing user_id, "
+                                "AMS error, or rejected file). Check the printer "
+                                "touchscreen for the actual reason."
+                            ),
+                            completed_at=_now(),
+                        )
+                        return
+                    # still in startup grace — keep waiting for RUNNING
             except Exception:
                 pass  # transient error — keep polling
 

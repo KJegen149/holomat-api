@@ -1,5 +1,5 @@
 """
-Home Assistant MQTT discovery bridge — Phase 3.
+Home Assistant MQTT discovery bridge.
 Publishes Holomat device state to HA via MQTT discovery protocol,
 enabling all Holomat sensors to appear as native HA entities.
 
@@ -15,6 +15,7 @@ import threading
 from typing import Any
 
 from core.logger import get_logger
+from core.version import VERSION
 
 log = get_logger(__name__)
 
@@ -32,7 +33,7 @@ DEVICE_INFO: dict[str, Any] = {
     "name":         "Holomat",
     "model":        "Smart Fabrication Surface",
     "manufacturer": "JARVIS",
-    "sw_version":   "0.3.0",
+    "sw_version":   VERSION,
 }
 
 # Each entry: component, object_id, extra HA config keys
@@ -78,12 +79,6 @@ _ENTITIES: list[dict[str, Any]] = [
         "name":                "Active Clients",
         "unit_of_measurement": "clients",
         "icon":                "mdi:monitor-multiple",
-    },
-    {
-        "component": "sensor",
-        "object_id": "phase",
-        "name":      "Current Phase",
-        "icon":      "mdi:progress-wrench",
     },
 ]
 
@@ -133,7 +128,7 @@ class _HABridge:
 
     def start(self) -> None:
         if not self.is_configured():
-            raise NotImplementedError("Phase 3 — set HA_MQTT_HOST to enable HA bridge")
+            raise NotImplementedError("HA bridge requires HA_MQTT_HOST")
 
         try:
             import paho.mqtt.client as mqtt  # type: ignore
@@ -231,7 +226,6 @@ class _HABridge:
                 "camera_online":      "ON" if camera.is_available() else "OFF",
                 "printer_configured": "ON" if printer_is_configured() else "OFF",
                 "ws_clients":         str(ws_manager.connection_count),
-                "phase":              "Phase 4 — Object Scanning",
             }
             for entity in _ENTITIES:
                 obj_id = entity["object_id"]

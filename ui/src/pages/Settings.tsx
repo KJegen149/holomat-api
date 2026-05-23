@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Settings as SettingsIcon, Save, Loader2, RotateCcw, CheckCircle, Power, Zap, Circle } from 'lucide-react'
-import { fetchSettings, saveSettings, restartService, testConnections, bambuDryRun, bambuCloudAuth, meshyTest, fetchHealth, type ConnectionTestResult } from '../api/client'
+import { Settings as SettingsIcon, Save, Loader2, RotateCcw, CheckCircle, Power, Zap, Circle, Lock } from 'lucide-react'
+import { fetchSettings, saveSettings, restartService, testConnections, bambuDryRun, bambuCloudAuth, meshyTest, fetchHealth, setAdminKey, AdminAuthError, type ConnectionTestResult } from '../api/client'
 
 // ── Field & section definitions ─────────────────────────────────────────────
 
@@ -26,14 +26,14 @@ const SECTIONS: SectionDef[] = [
     id: 'printer',
     label: 'Bambu Printer',
     fields: [
-      { key: 'BAMBU_SERIAL',      label: 'Serial Number',          type: 'text',     placeholder: '01P00C…' },
-      { key: 'BAMBU_IP',          label: 'LAN IP Address',         type: 'text',     placeholder: '10.11.12.91' },
+      { key: 'BAMBU_SERIAL',      label: 'Serial Number',          type: 'text',     placeholder: 'serial number' },
+      { key: 'BAMBU_IP',          label: 'LAN IP Address',         type: 'text',     placeholder: '192.168.1.50' },
       { key: 'BAMBU_ACCESS_CODE', label: 'Access Code',            type: 'password', hint: 'Settings → Network on printer' },
       { key: 'BAMBU_AMS_SLOT',    label: 'AMS Filament Slot',      type: 'text',     placeholder: '0', hint: '0-indexed slot; leave blank for default' },
       { key: 'BAMBU_EMAIL',       label: 'Bambu Account Email',    type: 'text',     placeholder: 'you@example.com' },
       { key: 'BAMBU_PASSWORD',    label: 'Bambu Account Password', type: 'password' },
       { key: 'BAMBU_REGION',      label: 'Region',                 type: 'select',   options: ['global', 'china'] },
-      { key: 'BAMBU_CERT',        label: 'Printer Cert Path',      type: 'text',     placeholder: '/home/jarvis/holomat-api/certs/printer.pem' },
+      { key: 'BAMBU_CERT',        label: 'Printer Cert Path',      type: 'text',     placeholder: 'certs/printer.pem' },
     ],
   },
   {
@@ -44,7 +44,7 @@ const SECTIONS: SectionDef[] = [
       { key: 'GEMINI_API_KEY', label: 'API Key',            type: 'password', hint: 'Vision (object scan) + text generation (case design)' },
       { key: 'GEMINI_MODEL',   label: 'Model',              type: 'text',     placeholder: 'gemini-2.5-flash' },
       { key: '',               label: 'CLOUDFLARE WORKER',  type: 'header' },
-      { key: 'CF_API_URL',     label: 'Worker URL',         type: 'text',     placeholder: 'https://jarvis-api.kjeg.workers.dev', hint: 'Proxies Gallery storage, Meshy 3D generation, and Voice AI (STT / TTS / LLM)' },
+      { key: 'CF_API_URL',     label: 'Worker URL',         type: 'text',     placeholder: 'https://your-worker.workers.dev', hint: 'Proxies Gallery storage, Meshy 3D generation, and Voice AI (STT / TTS / LLM)' },
       { key: 'CF_API_KEY',     label: 'Worker API Key',     type: 'password' },
     ],
   },
@@ -53,7 +53,7 @@ const SECTIONS: SectionDef[] = [
     label: 'Home Assistant',
     fields: [
       { key: 'HA_URL',       label: 'HA URL',           type: 'text',     placeholder: 'https://ha.example.com' },
-      { key: 'HA_MQTT_HOST', label: 'MQTT Host',        type: 'text',     placeholder: '10.11.12.x' },
+      { key: 'HA_MQTT_HOST', label: 'MQTT Host',        type: 'text',     placeholder: '192.168.1.x' },
       { key: 'HA_MQTT_PORT', label: 'MQTT Port',        type: 'text',     placeholder: '1883' },
       { key: 'HA_MQTT_USER', label: 'MQTT User',        type: 'text' },
       { key: 'HA_MQTT_PASS', label: 'MQTT Password',   type: 'password' },
@@ -369,7 +369,7 @@ function AdminPanel() {
                   ? 'border-j-green text-j-green cursor-pointer'
                   : restartState === 'timeout'
                   ? 'border-j-amber text-j-amber cursor-pointer'
-                  : 'border-j-err/60 text-j-err hover:bg-j-err/10 cursor-pointer'
+                  : 'border-j-red/60 text-j-red hover:bg-j-red/10 cursor-pointer'
                 }`}
             >
               {restartState === 'restarting'
@@ -420,7 +420,7 @@ function AdminPanel() {
         </div>
         <div className="px-5 py-4 bg-j-bg">
           {testError && (
-            <p className="font-mono text-[11px] text-j-err mb-3">{testError}</p>
+            <p className="font-mono text-[11px] text-j-red mb-3">{testError}</p>
           )}
           {!testResults && !testing && (
             <p className="font-mono text-[10px] text-j-cdim">
@@ -433,14 +433,14 @@ function AdminPanel() {
                 <div key={key} className="flex items-start gap-3">
                   <Circle
                     size={8}
-                    className={`flex-shrink-0 mt-0.5 fill-current ${result.ok ? 'text-j-green' : 'text-j-err'}`}
+                    className={`flex-shrink-0 mt-0.5 fill-current ${result.ok ? 'text-j-green' : 'text-j-red'}`}
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3">
                       <span className="font-mono text-[10px] text-j-text tracking-[0.05em] w-36 flex-shrink-0">
                         {TEST_LABELS[key] ?? key}
                       </span>
-                      <span className={`font-mono text-[10px] ${result.ok ? 'text-j-green' : 'text-j-err'}`}>
+                      <span className={`font-mono text-[10px] ${result.ok ? 'text-j-green' : 'text-j-red'}`}>
                         {result.ok ? 'OK' : 'FAIL'}
                       </span>
                     </div>
@@ -483,7 +483,7 @@ function AdminPanel() {
         </div>
         <div className="px-5 py-4 bg-j-bg">
           {dryRunError && (
-            <p className="font-mono text-[11px] text-j-err mb-3">{dryRunError}</p>
+            <p className="font-mono text-[11px] text-j-red mb-3">{dryRunError}</p>
           )}
           {!dryRunResults && !dryRunning && (
             <p className="font-mono text-[10px] text-j-cdim">
@@ -496,7 +496,7 @@ function AdminPanel() {
                 <div key={key} className="flex items-start gap-3">
                   <Circle
                     size={8}
-                    className={`flex-shrink-0 mt-0.5 fill-current ${result.ok ? 'text-j-green' : 'text-j-err'}`}
+                    className={`flex-shrink-0 mt-0.5 fill-current ${result.ok ? 'text-j-green' : 'text-j-red'}`}
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3">
@@ -505,7 +505,7 @@ function AdminPanel() {
                          key === 'cloud_auth'  ? 'Cloud Auth'      :
                          key === 'mqtt_status' ? 'MQTT Status Poll' : key}
                       </span>
-                      <span className={`font-mono text-[10px] ${result.ok ? 'text-j-green' : 'text-j-err'}`}>
+                      <span className={`font-mono text-[10px] ${result.ok ? 'text-j-green' : 'text-j-red'}`}>
                         {result.ok ? 'OK' : 'FAIL'}
                       </span>
                     </div>
@@ -548,7 +548,7 @@ function AdminPanel() {
         </div>
         <div className="px-5 py-4 bg-j-bg">
           {meshyError && (
-            <p className="font-mono text-[11px] text-j-err mb-3">{meshyError}</p>
+            <p className="font-mono text-[11px] text-j-red mb-3">{meshyError}</p>
           )}
           {!meshyResult && !meshyTesting && (
             <p className="font-mono text-[10px] text-j-cdim">
@@ -559,10 +559,10 @@ function AdminPanel() {
             <div className="flex items-start gap-3">
               <Circle
                 size={8}
-                className={`flex-shrink-0 mt-0.5 fill-current ${meshyResult.ok ? 'text-j-green' : 'text-j-err'}`}
+                className={`flex-shrink-0 mt-0.5 fill-current ${meshyResult.ok ? 'text-j-green' : 'text-j-red'}`}
               />
               <div>
-                <span className={`font-mono text-[10px] ${meshyResult.ok ? 'text-j-green' : 'text-j-err'}`}>
+                <span className={`font-mono text-[10px] ${meshyResult.ok ? 'text-j-green' : 'text-j-red'}`}>
                   {meshyResult.ok ? 'OK' : 'FAIL'}
                 </span>
                 <p className="font-mono text-[9px] text-j-cdim mt-0.5 break-all">{meshyResult.detail}</p>
@@ -636,7 +636,7 @@ function BambuOtpPanel() {
           </button>
         </div>
         {result && (
-          <p className={`font-mono text-[10px] ${result.ok ? 'text-j-green' : 'text-j-err'}`}>
+          <p className={`font-mono text-[10px] ${result.ok ? 'text-j-green' : 'text-j-red'}`}>
             {result.ok ? '✓ ' : '✗ '}{result.detail}
           </p>
         )}
@@ -647,6 +647,44 @@ function BambuOtpPanel() {
 
 // ── Main Settings page ───────────────────────────────────────────────────────
 
+function AdminKeyGate({ onUnlock }: { onUnlock: () => void }) {
+  const [key, setKey] = useState('')
+  return (
+    <div className="flex flex-col items-center justify-center h-full gap-5 p-10">
+      <Lock size={32} className="text-j-amber" strokeWidth={1.5} />
+      <div className="text-center">
+        <h2 className="text-j-amber font-sans font-bold text-[13px] tracking-[0.2em] uppercase mb-1">
+          Admin Key Required
+        </h2>
+        <p className="text-j-muted font-mono text-[10px] tracking-[0.05em]">
+          The Settings API is protected — enter the HOLOMAT_ADMIN_KEY value.
+        </p>
+      </div>
+      <form
+        onSubmit={(e) => { e.preventDefault(); if (key) { setAdminKey(key); onUnlock() } }}
+        className="flex flex-col gap-3 w-72"
+      >
+        <input
+          type="password"
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          placeholder="Admin key"
+          autoFocus
+          className="bg-j-bg border border-j-border rounded-sm px-3 py-2 text-j-text font-mono text-[12px] focus:border-j-cyan outline-none"
+        />
+        <button
+          type="submit"
+          disabled={!key}
+          className="bg-j-cyan/10 border border-j-cyan text-j-cyan font-mono text-[11px] tracking-[0.15em] uppercase py-2 rounded-sm hover:bg-j-cyan/20 disabled:opacity-40 transition-colors"
+        >
+          Unlock
+        </button>
+      </form>
+    </div>
+  )
+}
+
+
 export default function Settings() {
   const [serverValues, setServerValues] = useState<Record<string, string>>({})
   const [formValues, setFormValues]     = useState<Record<string, string>>({})
@@ -656,11 +694,14 @@ export default function Settings() {
   const [savedSection, setSavedSection] = useState<string | null>(null)
   const [restartRequired, setRestartRequired] = useState(false)
   const [activeSection, setActiveSection]     = useState(SECTIONS[0].id)
+  const [needsKey, setNeedsKey]               = useState(false)
+  const [authEnabled, setAuthEnabled]         = useState(true)
 
   const load = useCallback(async (isInitial = false) => {
     try {
       const res = await fetchSettings()
       setServerValues(res.settings)
+      setAuthEnabled(res.auth_enabled)
       if (isInitial) {
         const initial: Record<string, string> = {}
         for (const [key, val] of Object.entries(res.settings)) {
@@ -670,7 +711,8 @@ export default function Settings() {
       }
       setError(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load settings')
+      if (e instanceof AdminAuthError) setNeedsKey(true)
+      else setError(e instanceof Error ? e.message : 'Failed to load settings')
     } finally {
       setLoading(false)
     }
@@ -715,13 +757,18 @@ export default function Settings() {
       })
       setTimeout(() => setSavedSection(null), 3000)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Save failed')
+      if (e instanceof AdminAuthError) setNeedsKey(true)
+      else setError(e instanceof Error ? e.message : 'Save failed')
     } finally {
       setSaving(false)
     }
   }, [formValues, load])
 
   const currentSection = SECTIONS.find(s => s.id === activeSection) ?? SECTIONS[0]
+
+  if (needsKey) {
+    return <AdminKeyGate onUnlock={() => { setNeedsKey(false); setLoading(true); load(true) }} />
+  }
 
   if (loading) {
     return (
@@ -740,7 +787,6 @@ export default function Settings() {
             <SettingsIcon size={14} className="text-j-cyan" strokeWidth={1.5} />
             <span className="text-j-cyan font-mono text-[11px] tracking-[0.2em] uppercase">Settings</span>
           </div>
-          <span className="text-j-muted font-mono text-[10px] tracking-[0.1em]">Phase 9</span>
         </div>
 
         <nav className="py-2 flex-1">
@@ -780,9 +826,16 @@ export default function Settings() {
 
       {/* Right panel — active section form */}
       <div className="flex-1 overflow-y-auto p-6">
+        {!authEnabled && (
+          <div className="mb-4 border border-j-amber/40 bg-j-amber/5 rounded-sm px-4 py-3">
+            <p className="text-j-amber font-mono text-[11px]">
+              Settings API is unprotected — set HOLOMAT_ADMIN_KEY to require an admin key.
+            </p>
+          </div>
+        )}
         {error && (
-          <div className="mb-4 border border-j-err/40 bg-j-err/5 rounded-sm px-4 py-3">
-            <p className="text-j-err font-mono text-[11px]">{error}</p>
+          <div className="mb-4 border border-j-red/40 bg-j-red/5 rounded-sm px-4 py-3">
+            <p className="text-j-red font-mono text-[11px]">{error}</p>
           </div>
         )}
 

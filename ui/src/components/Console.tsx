@@ -8,13 +8,6 @@ const LVL_COLOR: Record<string, string> = {
   DEBUG:   'text-j-muted',
 }
 
-const MSG_COLOR: Record<string, string> = {
-  INFO:    'text-j-green',
-  WARNING: 'text-j-amber',
-  ERROR:   'text-j-red',
-  DEBUG:   'text-j-muted',
-}
-
 interface Props {
   logs: LogEntry[]
 }
@@ -42,7 +35,7 @@ export default function Console({ logs }: Props) {
             <div key={log.id} className="whitespace-pre-wrap break-all">
               <span className="text-j-cdim">[{log.ts}]</span>{' '}
               <span className={LVL_COLOR[lvl] ?? 'text-j-green'}>{lvl.padEnd(8)}</span>{' '}
-              <span className={MSG_COLOR[lvl] ?? 'text-j-green'}>{log.message}</span>
+              <span className={LVL_COLOR[lvl] ?? 'text-j-green'}>{log.message}</span>
             </div>
           )
         })}

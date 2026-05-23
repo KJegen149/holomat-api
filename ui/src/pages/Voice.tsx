@@ -113,7 +113,6 @@ export default function Voice() {
               Voice Bridge
             </span>
           </div>
-          <span className="text-j-muted font-mono text-[10px] tracking-[0.1em]">Phase 8</span>
         </div>
 
         {/* Status indicator */}
@@ -216,8 +215,8 @@ export default function Voice() {
 
         <div className="flex-1 overflow-y-auto p-5 space-y-3">
           {error && (
-            <div className="border border-j-err/40 bg-j-err/5 rounded-sm px-4 py-3">
-              <p className="text-j-err font-mono text-[11px]">{error}</p>
+            <div className="border border-j-red/40 bg-j-red/5 rounded-sm px-4 py-3">
+              <p className="text-j-red font-mono text-[11px]">{error}</p>
             </div>
           )}
 

@@ -1,5 +1,5 @@
 """
-JARVIS voice bridge — Phase 8.
+JARVIS voice bridge.
 
 Runs two Wyoming protocol TCP servers as asyncio tasks on the shared uvicorn
 event loop, and a standalone "Hey Jarvis" voice loop in a daemon thread:
@@ -160,7 +160,7 @@ async def _stt_session(reader: asyncio.StreamReader, writer: asyncio.StreamWrite
                         models=[AsrModel(
                             name="whisper-large-v3-turbo",
                             description="Whisper Large V3 Turbo via Cloudflare / Groq",
-                            attribution=Attribution(name="OpenAI / Groq", url=""),
+                            attribution=Attribution(name="Cloudflare Workers AI", url=""),
                             installed=True,
                             languages=["en"],
                         )],
@@ -306,7 +306,7 @@ class VoiceBridge:
 
     def start(self) -> None:
         if not _ENABLED:
-            raise NotImplementedError("Phase 8 — set WYOMING_ENABLED=true to activate voice bridge")
+            raise NotImplementedError("Voice bridge requires WYOMING_ENABLED=true")
 
         self._loop = asyncio.get_running_loop()
         self._stop_event.clear()
@@ -441,16 +441,9 @@ class VoiceBridge:
                 blocksize=native_block,
                 device=mic_idx,
             ) as stream:
-                rolling: list[np.ndarray] = []
                 while not self._stop_event.is_set():
                     raw, _ = stream.read(native_block)
                     chunk = _resample(raw.flatten(), native_rate, _MIC_RATE)
-                    rolling.append(chunk)
-
-                    # Rolling 3-second buffer for wake word context
-                    max_frames = 3 * _MIC_RATE // _CHUNK_FRAMES + 1
-                    if len(rolling) > max_frames:
-                        rolling.pop(0)
 
                     predictions = wakemodel.predict(chunk)
                     detected = any(v >= _WAKE_SENSITIVITY for v in predictions.values())
@@ -466,7 +459,6 @@ class VoiceBridge:
                         if audio is not None and audio.size > 0:
                             self._process_command(audio)
 
-                        rolling.clear()
                         self._set_state("idle")
 
         except Exception as exc:

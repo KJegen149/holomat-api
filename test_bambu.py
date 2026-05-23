@@ -6,13 +6,20 @@ Run this FIRST on KJLC-AI-01 before starting the API server.
 Usage:
     python3 test_bambu.py
 """
-import asyncio
+import os
 import sys
 import time
+from pathlib import Path
 
-PRINTER_IP  = "10.11.12.91"
-ACCESS_CODE = "14620600"
-SERIAL      = "01p00c5c0701414"
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent / ".env")
+except ImportError:
+    pass
+
+PRINTER_IP  = os.getenv("BAMBU_IP", "")
+ACCESS_CODE = os.getenv("BAMBU_ACCESS_CODE", "")
+SERIAL      = os.getenv("BAMBU_SERIAL", "")
 
 def test_import():
     print("1. Checking bambulabs-api install...")

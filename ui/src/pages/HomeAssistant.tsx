@@ -32,7 +32,7 @@ export default function HomeAssistant({ health }: Props) {
             Set <span className="text-j-cyan font-mono">HA_URL</span> in the service environment
             to enable the Home Assistant embed.<br /><br />
             Example:<br />
-            <span className="text-j-text font-mono">HA_URL=https://ha.nannerserver.com</span>
+            <span className="text-j-text font-mono">HA_URL=https://ha.example.com</span>
           </p>
         </div>
       </div>
