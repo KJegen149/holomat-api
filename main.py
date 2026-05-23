@@ -24,6 +24,7 @@ from api.routes.scan import router as scan_router
 from api.routes.print import router as print_router
 from api.routes.gallery import router as gallery_router
 from api.routes.generate import router as generate_router
+from api.routes.sources import router as sources_router
 from api.routes.ha import router as ha_router
 from api.routes.voice import router as voice_router
 from api.routes.settings import router as settings_router
@@ -129,6 +130,7 @@ app.include_router(scan_router,        prefix="/api/scan")
 app.include_router(print_router,       prefix="/api/print")
 app.include_router(gallery_router,     prefix="/api/gallery")
 app.include_router(generate_router,    prefix="/api/generate")
+app.include_router(sources_router,     prefix="/api/sources")
 app.include_router(ha_router,          prefix="/api/ha")
 app.include_router(voice_router,       prefix="/api/voice")
 app.include_router(settings_router,    prefix="/api/settings")
