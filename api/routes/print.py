@@ -11,6 +11,7 @@ POST   /api/print/profiles          — create custom print profile
 DELETE /api/print/profiles/{id}     — delete custom profile
 """
 from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -32,6 +33,10 @@ class QueueJobBody(BaseModel):
     stl_filename: str = Field(..., description="Filename inside scan_data/stls/")
     profile_id: str = Field("standard", description="Profile id (draft/standard/fine or custom UUID)")
     name: str = Field("", description="Human-readable job name; defaults to filename stem")
+    ams_slot: Optional[int] = Field(
+        None, ge=-1, le=3,
+        description="AMS slot: -1 = external spool, 0-3 = AMS trays. None = use BAMBU_AMS_SLOT default.",
+    )
 
 
 class CreateProfileBody(BaseModel):
@@ -111,6 +116,7 @@ async def queue_job(body: QueueJobBody) -> JSONResponse:
         name=name,
         stl_path=str(stl_path.resolve()),
         profile_id=body.profile_id,
+        ams_slot=body.ams_slot,
     )
     return JSONResponse(status_code=201, content=job)
 

@@ -281,6 +281,7 @@ export interface PrintJob {
   name: string
   stl_path: string
   profile_id: string
+  ams_slot: number | null  // null = use BAMBU_AMS_SLOT default at print time
   state: 'queued' | 'slicing' | 'uploading' | 'printing' | 'done' | 'failed' | 'cancelled'
   created_at: string
   started_at: string | null
@@ -311,11 +312,17 @@ export async function queuePrintJob(
   stl_filename: string,
   profile_id: string,
   name?: string,
+  ams_slot?: number | null,
 ): Promise<PrintJob> {
   return _check(await fetch('/api/print/queue', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ stl_filename, profile_id, name: name ?? '' }),
+    body: JSON.stringify({
+      stl_filename,
+      profile_id,
+      name: name ?? '',
+      ams_slot: ams_slot ?? null,
+    }),
   }))
 }
 

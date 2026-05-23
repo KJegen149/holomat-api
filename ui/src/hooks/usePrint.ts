@@ -82,11 +82,12 @@ export function usePrint() {
     stl_filename: string,
     profile_id: string,
     name?: string,
+    ams_slot?: number | null,
   ) => {
     setLoading(true)
     setError(null)
     try {
-      await queuePrintJob(stl_filename, profile_id, name)
+      await queuePrintJob(stl_filename, profile_id, name, ams_slot)
       await refreshQueue()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to queue job')
