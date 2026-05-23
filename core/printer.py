@@ -43,6 +43,14 @@ BAMBU_TOKEN_FILE  = os.getenv("BAMBU_TOKEN_FILE", "scan_data/.bambu_token")
 BAMBU_REGION      = os.getenv("BAMBU_REGION", "global")   # "global" or "china"
 
 
+class PrinterAuthError(RuntimeError):
+    """Raised when printer-side auth or Bambu cloud auth fails in a way the user can fix.
+
+    These messages are surfaced verbatim in the Print tab's failed-job error field,
+    so they need to read like instructions, not stack traces.
+    """
+
+
 def is_cloud_configured() -> bool:
     """True iff we can reach Bambu cloud to look up the user_id."""
     return bool(BAMBU_EMAIL and BAMBU_PASSWORD and BAMBU_SERIAL)
@@ -232,11 +240,14 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT,
         raise RuntimeError("paho-mqtt not installed — pip install paho-mqtt")
 
     connected = False
+    connect_rc: Optional[int] = None  # captured for clearer error messages on failure
 
     def _on_connect(client, userdata, flags, *args):
-        nonlocal connected
+        nonlocal connected, connect_rc
         rc = args[0] if args else 0
-        connected = (rc == 0 if isinstance(rc, int) else rc.value == 0)
+        rc_int = rc if isinstance(rc, int) else getattr(rc, "value", -1)
+        connect_rc = rc_int
+        connected = (rc_int == 0)
 
     try:
         client = mqtt.Client(
@@ -266,7 +277,20 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT,
 
     if not connected:
         client.loop_stop()
-        raise RuntimeError("MQTT connect to printer timed out after 10 s")
+        # paho rc 4 = bad username/password, rc 5 = not authorized. For Bambu the
+        # MQTT password IS the access code, so both mean "the access code we have
+        # is wrong" — which most often means the code rotated on the printer.
+        if connect_rc in (4, 5):
+            raise PrinterAuthError(
+                f"Printer rejected the access code (MQTT rc={connect_rc}). "
+                "The BAMBU_ACCESS_CODE has likely rotated — check Settings → Network "
+                "on the printer touchscreen and update it under Holomat Settings → "
+                "Bambu Printer → Access Code."
+            )
+        raise RuntimeError(
+            f"MQTT connect to printer timed out after 10 s (rc={connect_rc}). "
+            f"Check that the printer is on, on the LAN, and reachable at {BAMBU_IP}:{BAMBU_MQTT_PORT}."
+        )
 
     report_topic = f"device/{BAMBU_SERIAL}/report"
     client.subscribe(report_topic, qos=0)
@@ -344,8 +368,15 @@ def _mqtt_print_trigger(filename: str, ams_slot: int = BAMBU_AMS_SLOT,
             log.warning("Printer status after trigger: %s", json.dumps(snap))
 
 
+_OTP_HINTS = ("otp", "verification code", "verification_code", "two-factor",
+              "two factor", "2fa", "mfa", "auth_code", "needs_verify")
+
+
 def _get_user_id() -> str:
-    """Fetch the Bambu account user_id via cloud auth. Returns empty string on failure."""
+    """Fetch the Bambu account user_id via cloud auth. Returns empty string on
+    soft failures; raises PrinterAuthError when the user must take action
+    (e.g. complete an OTP challenge in Bambu Handy).
+    """
     if not is_cloud_configured():
         return ""
     try:
@@ -357,6 +388,13 @@ def _get_user_id() -> str:
             log.info("Cloud auth: user_id=%s", uid)
         return uid
     except Exception as e:
+        msg = str(e).lower()
+        if any(hint in msg for hint in _OTP_HINTS):
+            raise PrinterAuthError(
+                "Bambu cloud needs an OTP verification before it will return a "
+                "user_id. Open Bambu Handy, complete the verification challenge, "
+                "then queue the print again."
+            ) from e
         log.warning("Could not fetch user_id from cloud auth: %s", e)
         return ""
 
