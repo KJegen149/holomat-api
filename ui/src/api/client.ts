@@ -351,6 +351,36 @@ export async function deletePrintProfile(profileId: string): Promise<{ deleted: 
   return _check(await fetch(`/api/print/profiles/${profileId}`, { method: 'DELETE' }))
 }
 
+// ── Model Sources API (Phase 11) ──────────────────────────────────
+
+/** ID of the inlet that produced a model. `unknown` = legacy file with no sidecar. */
+export type ModelSource =
+  | 'openscad'
+  | 'samba'
+  | 'meshy'
+  | 'thingiverse'
+  | 'makerworld'
+  | 'tinkercad'
+  | 'unknown'
+
+export interface ModelSourceStl {
+  filename: string
+  stem: string
+  size_bytes: number
+  modified_at: number
+  source: ModelSource
+  external_url: string | null
+  thumbnail_url: string | null
+}
+
+export async function fetchSourceStls(): Promise<{ stls: ModelSourceStl[] }> {
+  return _check(await fetch('/api/sources/stls'))
+}
+
+export async function deleteSourceStl(filename: string): Promise<{ deleted: string }> {
+  return _check(await fetch(`/api/sources/stls/${encodeURIComponent(filename)}`, { method: 'DELETE' }))
+}
+
 // ── Voice Bridge API───────────────────────────────────────────────
 
 export interface VoiceStatus {

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Crosshair, Scan, Printer, Image, Settings, Home, Mic, Keyboard } from 'lucide-react'
+import { LayoutDashboard, Crosshair, Scan, Printer, Image, Settings, Home, Mic, Keyboard, Boxes } from 'lucide-react'
 import Console from './Console'
 import StatusPill, { type PillState } from './StatusPill'
 import OnScreenKeyboard from './OnScreenKeyboard'
@@ -20,6 +20,7 @@ const NAV: NavItem[] = [
   { path: '/home-assistant',  icon: Home,            label: 'HOME ASSISTANT', end: false },
   { path: '/scanner',         icon: Scan,            label: 'SCANNER',        end: false },
   { path: '/print',           icon: Printer,         label: 'PRINT',          end: false },
+  { path: '/models',          icon: Boxes,           label: 'MODELS',         end: false },
   { path: '/gallery',         icon: Image,           label: 'GALLERY',        end: false },
   { path: '/voice',           icon: Mic,             label: 'VOICE',          end: false },
   { path: '/settings',        icon: Settings,        label: 'SETTINGS',       end: false },

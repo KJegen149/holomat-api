@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard'
 import Calibration from './pages/Calibration'
 import Scanner from './pages/Scanner'
 import Print from './pages/Print'
+import ModelSources from './pages/ModelSources'
 import Gallery from './pages/Gallery'
 import Settings from './pages/Settings'
 import HomeAssistant from './pages/HomeAssistant'
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="/home-assistant" element={<HomeAssistant health={health} />} />
         <Route path="/scanner"        element={<Scanner />} />
         <Route path="/print"          element={<Print />} />
+        <Route path="/models"         element={<ModelSources />} />
         <Route path="/gallery"        element={<Gallery />} />
         <Route path="/voice"          element={<Voice />} />
         <Route path="/settings"       element={<Settings />} />
