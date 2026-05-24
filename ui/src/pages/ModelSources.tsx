@@ -335,19 +335,21 @@ function OtherInlets({
         >
           <Globe size={11} /> MakerWorld URL
         </button>
-        <button
-          disabled
-          title="Open TinkerCad — coming soon"
+        <a
+          href="https://www.tinkercad.com/dashboard"
+          target="_blank"
+          rel="noreferrer"
+          title="Opens in a new tab. Export STL from TinkerCad and drop it into HolomatSTL."
           className="flex items-center justify-center gap-1.5 py-1.5 border border-j-border
-                     text-j-cdim opacity-50 cursor-not-allowed rounded-sm
+                     text-j-muted hover:text-j-cyan hover:border-j-cyan transition-colors rounded-sm
                      font-mono text-[10px] tracking-[0.05em] uppercase"
         >
-          <Pencil size={11} /> TinkerCad
-        </button>
+          <Pencil size={11} /> TinkerCad <ExternalLink size={9} />
+        </a>
       </div>
       <p className="font-mono text-[9px] text-j-cdim mt-2 leading-relaxed">
         Drop into <span className="text-j-muted">\\KJLC-AI-01\HolomatSTL</span> for
-        immediate ingestion.
+        immediate ingestion — TinkerCad's STL export lands there in one step.
       </p>
     </div>
   )
