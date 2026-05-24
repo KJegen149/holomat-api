@@ -171,12 +171,24 @@ async def gallery_to_3d(item_id: str) -> JSONResponse:
         project = proj_r.json()
 
     log.info("Meshy image-to-3D submitted: task=%s project=%s", meshy.get("task_id"), project.get("id"))
+
+    # Register with the Phase 11 retrieval tracker so the background worker
+    # polls until done and pulls the STL into scan_data/stls/.
+    from core.meshy_jobs import meshy_jobs
+    tracker = await meshy_jobs.add_job(
+        task_id=meshy["task_id"],
+        source_filename=item.get("filename", item_id),
+        gallery_item_id=item_id,
+        thumbnail_url=f"/api/gallery/{item_id}/image",
+    )
+
     return JSONResponse(
         {
             "task_id": meshy["task_id"],
             "mode": "image",
             "project_id": project["id"],
             "gallery_item_id": item_id,
+            "meshy_job_id": tracker["id"],
         },
         status_code=202,
     )

@@ -46,6 +46,10 @@ const SECTIONS: SectionDef[] = [
       { key: '',               label: 'CLOUDFLARE WORKER',  type: 'header' },
       { key: 'CF_API_URL',     label: 'Worker URL',         type: 'text',     placeholder: 'https://your-worker.workers.dev', hint: 'Proxies Gallery storage, Meshy 3D generation, and Voice AI (STT / TTS / LLM)' },
       { key: 'CF_API_KEY',     label: 'Worker API Key',     type: 'password' },
+      { key: '',               label: 'MESHY (DIRECT)',     type: 'header' },
+      { key: 'MESHY_API_KEY',  label: 'API Key',            type: 'password', hint: 'Direct Meshy API key — enables the Meshy Library browser. Get one at meshy.ai/api' },
+      { key: '',                 label: 'THINGIVERSE',      type: 'header' },
+      { key: 'THINGIVERSE_TOKEN', label: 'App Token',       type: 'password', hint: 'Register an app at thingiverse.com/developers/my-apps and copy its token' },
     ],
   },
   {
@@ -95,6 +99,7 @@ const SENSITIVE_KEYS = new Set([
   'BAMBU_PASSWORD', 'BAMBU_ACCESS_CODE',
   'GEMINI_API_KEY', 'CF_API_KEY',
   'HA_MQTT_PASS', 'HA_TOKEN',
+  'THINGIVERSE_TOKEN', 'MESHY_API_KEY',
 ])
 
 const MASK = '••••••'

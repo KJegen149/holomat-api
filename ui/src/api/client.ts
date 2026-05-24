@@ -205,6 +205,7 @@ export interface Generate3dResult {
   mode: string
   project_id: string
   gallery_item_id: string
+  meshy_job_id: string
 }
 
 export interface GenerateSvgResult {
@@ -371,6 +372,8 @@ export interface ModelSourceStl {
   source: ModelSource
   external_url: string | null
   thumbnail_url: string | null
+  /** File format: 'stl' for native, '3mf' for pre-sliced inputs (MakerWorld). */
+  format: 'stl' | '3mf' | string
 }
 
 export async function fetchSourceStls(): Promise<{ stls: ModelSourceStl[] }> {
@@ -379,6 +382,162 @@ export async function fetchSourceStls(): Promise<{ stls: ModelSourceStl[] }> {
 
 export async function deleteSourceStl(filename: string): Promise<{ deleted: string }> {
   return _check(await fetch(`/api/sources/stls/${encodeURIComponent(filename)}`, { method: 'DELETE' }))
+}
+
+// ── Meshy retrieval (Phase 11 item 3) ────────────────────────────
+
+export type MeshyJobState =
+  | 'pending'
+  | 'polling'
+  | 'downloading'
+  | 'done'
+  | 'failed'
+  | 'cancelled'
+
+export interface MeshyJob {
+  id: string
+  task_id: string
+  source: 'image'
+  source_filename: string
+  gallery_item_id: string | null
+  thumbnail_url: string | null
+  state: MeshyJobState
+  created_at: string
+  completed_at: string | null
+  error: string | null
+  progress: number
+  stl_filename: string | null
+}
+
+export interface MeshyJobsResponse {
+  active: MeshyJob[]
+  history: MeshyJob[]
+}
+
+export async function fetchMeshyJobs(): Promise<MeshyJobsResponse> {
+  return _check(await fetch('/api/sources/meshy/jobs'))
+}
+
+export async function cancelMeshyJob(jobId: string): Promise<{ cancelled: string }> {
+  return _check(await fetch(`/api/sources/meshy/jobs/${jobId}`, { method: 'DELETE' }))
+}
+
+// ── Meshy account browser (Phase 11 item 7 — direct API) ─────────
+
+export type MeshyTaskStatus = 'PENDING' | 'IN_PROGRESS' | 'SUCCEEDED' | 'FAILED' | 'CANCELED' | ''
+
+export interface MeshyTask {
+  id: string
+  status: MeshyTaskStatus
+  progress: number
+  prompt: string
+  thumbnail_url: string | null
+  image_url: string | null
+  created_at: string | null
+  finished_at: string | null
+  has_stl: boolean
+  stl_url: string | null
+  imported_filename: string | null
+}
+
+export interface MeshyTasksResponse {
+  tasks: MeshyTask[]
+  total: number
+  page: number
+}
+
+export async function fetchMeshyTasks(status: MeshyTaskStatus = '', page = 1, pageSize = 30): Promise<MeshyTasksResponse> {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) })
+  if (status) params.set('status', status)
+  return _check(await fetch(`/api/sources/meshy/tasks?${params}`))
+}
+
+export async function importMeshyTask(taskId: string): Promise<{ filename: string; size_bytes?: number; already_imported?: boolean }> {
+  return _check(await fetch('/api/sources/meshy/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task_id: taskId }),
+  }))
+}
+
+// ── Thingiverse (Phase 11 item 4) ────────────────────────────────
+
+export interface ThingiverseThing {
+  id: number
+  name: string
+  creator: string
+  thumbnail_url: string | null
+  public_url: string
+  like_count: number | null
+  is_nsfw: boolean
+}
+
+export interface ThingiverseSearchResponse {
+  things: ThingiverseThing[]
+  total: number
+  page: number
+}
+
+export interface ThingiverseFile {
+  id: number
+  name: string
+  size: number | null
+  is_stl: boolean
+  download_url: string | null
+  public_url: string | null
+}
+
+export interface ThingiverseImportBody {
+  thing_id: number
+  file_id: number
+  thing_name?: string
+  file_name?: string
+  thing_url?: string
+  creator?: string
+  thumbnail_url?: string
+}
+
+export async function thingiverseSearch(q: string, page = 1, perPage = 20): Promise<ThingiverseSearchResponse> {
+  const params = new URLSearchParams({ q, page: String(page), per_page: String(perPage) })
+  return _check(await fetch(`/api/sources/thingiverse/search?${params}`))
+}
+
+export async function thingiverseFiles(thingId: number): Promise<{ files: ThingiverseFile[] }> {
+  return _check(await fetch(`/api/sources/thingiverse/things/${thingId}/files`))
+}
+
+export async function thingiverseImport(body: ThingiverseImportBody): Promise<{ filename: string; size_bytes: number; source: string }> {
+  return _check(await fetch('/api/sources/thingiverse/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }))
+}
+
+// ── MakerWorld (Phase 11 item 5) ─────────────────────────────────
+
+export interface MakerWorldDesign {
+  design_id: number
+  name: string
+  creator: string
+  thumbnail_url: string | null
+  public_url: string
+}
+
+export async function makerworldResolve(url: string): Promise<MakerWorldDesign> {
+  return _check(await fetch('/api/sources/makerworld/resolve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+  }))
+}
+
+export async function makerworldImport(url: string): Promise<{ filename: string; size_bytes: number; format: string }> {
+  return _check(await fetch('/api/sources/makerworld/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+  }))
 }
 
 // ── Voice Bridge API───────────────────────────────────────────────
@@ -490,6 +649,10 @@ export async function bambuDryRun(): Promise<{ results: Record<string, Connectio
 
 export async function meshyTest(): Promise<ConnectionTestResult> {
   return _checkSettings(await fetch('/api/settings/test/meshy', { headers: _adminHeaders() }))
+}
+
+export async function thingiverseTest(): Promise<ConnectionTestResult> {
+  return _checkSettings(await fetch('/api/settings/test/thingiverse', { headers: _adminHeaders() }))
 }
 
 export async function bambuCloudAuth(otp: string): Promise<{ ok: boolean; user_id: string; detail: string }> {
