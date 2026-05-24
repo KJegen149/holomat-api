@@ -420,6 +420,60 @@ export async function cancelMeshyJob(jobId: string): Promise<{ cancelled: string
   return _check(await fetch(`/api/sources/meshy/jobs/${jobId}`, { method: 'DELETE' }))
 }
 
+// ── Thingiverse (Phase 11 item 4) ────────────────────────────────
+
+export interface ThingiverseThing {
+  id: number
+  name: string
+  creator: string
+  thumbnail_url: string | null
+  public_url: string
+  like_count: number | null
+  is_nsfw: boolean
+}
+
+export interface ThingiverseSearchResponse {
+  things: ThingiverseThing[]
+  total: number
+  page: number
+}
+
+export interface ThingiverseFile {
+  id: number
+  name: string
+  size: number | null
+  is_stl: boolean
+  download_url: string | null
+  public_url: string | null
+}
+
+export interface ThingiverseImportBody {
+  thing_id: number
+  file_id: number
+  thing_name?: string
+  file_name?: string
+  thing_url?: string
+  creator?: string
+  thumbnail_url?: string
+}
+
+export async function thingiverseSearch(q: string, page = 1, perPage = 20): Promise<ThingiverseSearchResponse> {
+  const params = new URLSearchParams({ q, page: String(page), per_page: String(perPage) })
+  return _check(await fetch(`/api/sources/thingiverse/search?${params}`))
+}
+
+export async function thingiverseFiles(thingId: number): Promise<{ files: ThingiverseFile[] }> {
+  return _check(await fetch(`/api/sources/thingiverse/things/${thingId}/files`))
+}
+
+export async function thingiverseImport(body: ThingiverseImportBody): Promise<{ filename: string; size_bytes: number; source: string }> {
+  return _check(await fetch('/api/sources/thingiverse/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }))
+}
+
 // ── Voice Bridge API───────────────────────────────────────────────
 
 export interface VoiceStatus {
@@ -529,6 +583,10 @@ export async function bambuDryRun(): Promise<{ results: Record<string, Connectio
 
 export async function meshyTest(): Promise<ConnectionTestResult> {
   return _checkSettings(await fetch('/api/settings/test/meshy', { headers: _adminHeaders() }))
+}
+
+export async function thingiverseTest(): Promise<ConnectionTestResult> {
+  return _checkSettings(await fetch('/api/settings/test/thingiverse', { headers: _adminHeaders() }))
 }
 
 export async function bambuCloudAuth(otp: string): Promise<{ ok: boolean; user_id: string; detail: string }> {

@@ -44,6 +44,7 @@ SENSITIVE_KEYS = {
     "CF_API_KEY",
     "HA_MQTT_PASS",
     "HA_TOKEN",
+    "THINGIVERSE_TOKEN",
 }
 
 MASK = "••••••"
@@ -70,6 +71,7 @@ KNOWN_KEYS = [
     "CAMERA_DEVICE",
     "GEMINI_API_KEY",
     "GEMINI_MODEL",
+    "THINGIVERSE_TOKEN",
     "WYOMING_ENABLED",
     "WYOMING_STT_PORT",
     "WYOMING_TTS_PORT",
@@ -310,6 +312,31 @@ async def test_meshy():
         return {"ok": False, "detail": str(e)}
 
 
+
+
+@router.get("/test/thingiverse")
+async def test_thingiverse():
+    """Probe the Thingiverse API by fetching the authenticated user."""
+    import httpx
+    env = _read_env()
+    token = _resolve("THINGIVERSE_TOKEN", env)
+    if not token:
+        return {"ok": False, "detail": "THINGIVERSE_TOKEN not set"}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://api.thingiverse.com/users/me",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if r.status_code in (401, 403):
+            return {"ok": False, "detail": f"HTTP {r.status_code} — token rejected"}
+        if r.status_code >= 500:
+            return {"ok": False, "detail": f"HTTP {r.status_code} — Thingiverse error"}
+        body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        username = body.get("name") or body.get("first_name") or "authenticated"
+        return {"ok": True, "detail": f"Thingiverse authenticated as {username}"}
+    except Exception as e:
+        return {"ok": False, "detail": str(e)}
 
 
 @router.get("/test/bambu")

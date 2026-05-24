@@ -10,8 +10,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Boxes, RefreshCw, Trash2, Printer, Loader2, AlertTriangle, X,
-  Box, Globe, Hammer, ExternalLink, Pencil, Sparkles, CheckCircle2,
+  Box, Globe, Hammer, ExternalLink, Pencil, Sparkles, Search,
 } from 'lucide-react'
+import ThingiverseSearchModal from '../components/ThingiverseSearchModal'
 import {
   fetchSourceStls, deleteSourceStl,
   queuePrintJob, fetchPrintProfiles,
@@ -278,9 +279,8 @@ function MeshyRetrievals({
 
 // ── Other inlets (still placeholders) ───────────────────────────────────────
 
-function OtherInlets() {
-  const sources: { label: string; icon: typeof Box; tip: string }[] = [
-    { label: 'Thingiverse', icon: Globe,  tip: 'Browse Thingiverse — coming soon' },
+function OtherInlets({ onOpenThingiverse }: { onOpenThingiverse: () => void }) {
+  const placeholders: { label: string; icon: typeof Box; tip: string }[] = [
     { label: 'MakerWorld',  icon: Globe,  tip: 'Browse MakerWorld — coming soon' },
     { label: 'TinkerCad',   icon: Pencil, tip: 'Open TinkerCad — coming soon' },
   ]
@@ -290,7 +290,15 @@ function OtherInlets() {
         Other Inlets
       </div>
       <div className="grid grid-cols-1 gap-1.5">
-        {sources.map(({ label, icon: Icon, tip }) => (
+        <button
+          onClick={onOpenThingiverse}
+          className="flex items-center justify-center gap-1.5 py-1.5 border border-j-border
+                     text-j-muted hover:text-j-cyan hover:border-j-cyan transition-colors rounded-sm
+                     font-mono text-[10px] tracking-[0.05em] uppercase"
+        >
+          <Search size={11} /> Thingiverse
+        </button>
+        {placeholders.map(({ label, icon: Icon, tip }) => (
           <button
             key={label}
             disabled
@@ -319,6 +327,7 @@ export default function ModelSources() {
   const [meshyActive, setMeshyActive] = useState<MeshyJob[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [thingiverseOpen, setThingiverseOpen] = useState(false)
   // Use a ref so the WS callback can refresh without re-subscribing on every state change
   const reloadRef = useRef<() => void>(() => {})
 
@@ -456,9 +465,15 @@ export default function ModelSources() {
         </div>
         <div className="flex-1 p-4 overflow-y-auto space-y-3">
           <MeshyRetrievals active={meshyActive} onCancel={handleCancelMeshy} />
-          <OtherInlets />
+          <OtherInlets onOpenThingiverse={() => setThingiverseOpen(true)} />
         </div>
       </div>
+
+      <ThingiverseSearchModal
+        open={thingiverseOpen}
+        onClose={() => setThingiverseOpen(false)}
+        onImported={load}
+      />
     </div>
   )
 }
