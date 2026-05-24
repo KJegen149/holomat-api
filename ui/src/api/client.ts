@@ -420,6 +420,44 @@ export async function cancelMeshyJob(jobId: string): Promise<{ cancelled: string
   return _check(await fetch(`/api/sources/meshy/jobs/${jobId}`, { method: 'DELETE' }))
 }
 
+// ── Meshy account browser (Phase 11 item 7 — direct API) ─────────
+
+export type MeshyTaskStatus = 'PENDING' | 'IN_PROGRESS' | 'SUCCEEDED' | 'FAILED' | 'CANCELED' | ''
+
+export interface MeshyTask {
+  id: string
+  status: MeshyTaskStatus
+  progress: number
+  prompt: string
+  thumbnail_url: string | null
+  image_url: string | null
+  created_at: string | null
+  finished_at: string | null
+  has_stl: boolean
+  stl_url: string | null
+  imported_filename: string | null
+}
+
+export interface MeshyTasksResponse {
+  tasks: MeshyTask[]
+  total: number
+  page: number
+}
+
+export async function fetchMeshyTasks(status: MeshyTaskStatus = '', page = 1, pageSize = 30): Promise<MeshyTasksResponse> {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) })
+  if (status) params.set('status', status)
+  return _check(await fetch(`/api/sources/meshy/tasks?${params}`))
+}
+
+export async function importMeshyTask(taskId: string): Promise<{ filename: string; size_bytes?: number; already_imported?: boolean }> {
+  return _check(await fetch('/api/sources/meshy/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task_id: taskId }),
+  }))
+}
+
 // ── Thingiverse (Phase 11 item 4) ────────────────────────────────
 
 export interface ThingiverseThing {

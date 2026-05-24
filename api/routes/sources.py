@@ -10,6 +10,8 @@ GET    /api/sources/stls               — list STLs in the pool (with sidecar m
 DELETE /api/sources/stls/{filename}    — delete an STL (refuses if referenced by an active job)
 GET    /api/sources/meshy/jobs         — list Meshy retrieval jobs (active + history)
 DELETE /api/sources/meshy/jobs/{id}    — cancel a pending Meshy job
+GET    /api/sources/meshy/tasks        — list every Meshy image-to-3D task on the account
+POST   /api/sources/meshy/import       — import a SUCCEEDED Meshy task's STL into the pool
 GET    /api/sources/thingiverse/search?q=…&page=…  — search Thingiverse
 GET    /api/sources/thingiverse/things/{id}/files  — list a Thing's files
 POST   /api/sources/thingiverse/import — download a Thingiverse file into the pool
@@ -29,6 +31,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from core import meshy as meshy_api
 from core import thingiverse
 from core.logger import get_logger
 from core.meshy_jobs import meshy_jobs
@@ -130,6 +133,123 @@ async def cancel_meshy_job(job_id: str) -> JSONResponse:
     if not ok:
         raise HTTPException(status_code=404, detail="Job not found or already finished")
     return JSONResponse({"cancelled": job_id})
+
+
+# ── Meshy account browser (Phase 11 item 7 — direct Meshy API) ────────────────
+
+class MeshyImportBody(BaseModel):
+    task_id: str = Field(..., min_length=1, max_length=80)
+
+
+def _require_meshy_direct() -> None:
+    if not meshy_api.is_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="MESHY_API_KEY not set — add it in Settings → External APIs",
+        )
+
+
+def _meshy_already_imported_index() -> dict[str, str]:
+    """Map task_id → STL filename for everything already in the pool."""
+    index: dict[str, str] = {}
+    if not STL_DIR.exists():
+        return index
+    for stl in STL_DIR.iterdir():
+        if not stl.is_file() or stl.suffix.lower() != ".stl":
+            continue
+        side = stl.with_suffix(stl.suffix + ".meta.json")
+        if not side.exists():
+            continue
+        try:
+            meta = json.loads(side.read_text())
+        except Exception:
+            continue
+        if meta.get("source") == "meshy" and meta.get("task_id"):
+            index[str(meta["task_id"])] = stl.name
+    return index
+
+
+@router.get("/meshy/tasks")
+async def list_meshy_tasks(
+    status: str = Query("", max_length=20),
+    page: int = Query(1, ge=1, le=200),
+    page_size: int = Query(30, ge=1, le=50),
+) -> JSONResponse:
+    """Browse the user's full Meshy image-to-3D task history."""
+    _require_meshy_direct()
+    try:
+        result = await meshy_api.list_image_to_3d(
+            status=status or None, page=page, page_size=page_size,
+        )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Meshy: {e}")
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Meshy unreachable: {e}")
+
+    # Annotate each task with the local STL filename if we've already pulled it.
+    imported = _meshy_already_imported_index()
+    for t in result["tasks"]:
+        t["imported_filename"] = imported.get(str(t.get("id"))) if t.get("id") else None
+
+    return JSONResponse(result)
+
+
+@router.post("/meshy/import")
+async def import_meshy_task(body: MeshyImportBody) -> JSONResponse:
+    """Download a Meshy task's STL into the pool. Task must be SUCCEEDED."""
+    _require_meshy_direct()
+
+    try:
+        task = await meshy_api.get_image_to_3d(body.task_id)
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Meshy: {e}")
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Meshy unreachable: {e}")
+
+    status = str(task.get("status", "")).upper()
+    if status != "SUCCEEDED":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task is {status or 'unknown'}, not SUCCEEDED — cannot import yet",
+        )
+    stl_url = (task.get("model_urls") or {}).get("stl")
+    if not stl_url:
+        raise HTTPException(status_code=502, detail="Meshy task has no STL output")
+
+    # Skip duplicates — if a sidecar already references this task_id, return it.
+    existing = _meshy_already_imported_index().get(body.task_id)
+    if existing:
+        return JSONResponse({"filename": existing, "already_imported": True})
+
+    STL_DIR.mkdir(parents=True, exist_ok=True)
+    stem = (task.get("prompt") or f"meshy_{body.task_id}")[:40]
+    stem = re.sub(r"[^A-Za-z0-9_-]", "_", stem).strip("_") or f"meshy_{body.task_id[:8]}"
+    filename = f"{stem}_{body.task_id[:8]}.stl"
+    stl_path = STL_DIR / filename
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream("GET", stl_url) as resp:
+                resp.raise_for_status()
+                with open(stl_path, "wb") as fh:
+                    async for chunk in resp.aiter_bytes(chunk_size=64 * 1024):
+                        fh.write(chunk)
+    except httpx.HTTPError as e:
+        if stl_path.exists():
+            stl_path.unlink()
+        raise HTTPException(status_code=502, detail=f"STL download failed: {e}")
+
+    sidecar = stl_path.with_suffix(stl_path.suffix + ".meta.json")
+    sidecar.write_text(json.dumps({
+        "source": "meshy",
+        "thumbnail_url": task.get("thumbnail_url"),
+        "task_id": body.task_id,
+        "prompt": task.get("prompt"),
+        "imported_via": "browse",
+    }, indent=2))
+
+    log.info("Meshy task imported: %s → %s", body.task_id, filename)
+    return JSONResponse({"filename": filename, "size_bytes": stl_path.stat().st_size}, status_code=201)
 
 
 # ── Thingiverse (Phase 11 item 4) ─────────────────────────────────────────────

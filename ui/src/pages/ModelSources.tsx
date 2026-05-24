@@ -13,6 +13,7 @@ import {
   Box, Globe, Hammer, ExternalLink, Pencil, Sparkles, Search,
 } from 'lucide-react'
 import ThingiverseSearchModal from '../components/ThingiverseSearchModal'
+import MeshyBrowseModal from '../components/MeshyBrowseModal'
 import {
   fetchSourceStls, deleteSourceStl,
   queuePrintJob, fetchPrintProfiles,
@@ -250,13 +251,15 @@ function MeshyJobRow({ job, onCancel }: { job: MeshyJob; onCancel: (id: string) 
 function MeshyRetrievals({
   active,
   onCancel,
+  onBrowse,
 }: {
   active: MeshyJob[]
   onCancel: (id: string) => void
+  onBrowse: () => void
 }) {
   return (
-    <div className="border border-j-border rounded-sm p-3">
-      <div className="flex items-center justify-between mb-2">
+    <div className="border border-j-border rounded-sm p-3 space-y-2">
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 font-mono text-[9px] text-j-cdim tracking-[0.2em] uppercase">
           <Sparkles size={10} className="text-j-amber" /> Meshy Retrievals
         </div>
@@ -273,6 +276,23 @@ function MeshyRetrievals({
           {active.map(j => <MeshyJobRow key={j.id} job={j} onCancel={onCancel} />)}
         </div>
       )}
+      <button
+        onClick={onBrowse}
+        className="w-full flex items-center justify-center gap-1.5 py-1.5 border border-j-border
+                   text-j-muted hover:text-j-amber hover:border-j-amber transition-colors rounded-sm
+                   font-mono text-[10px] tracking-[0.05em] uppercase"
+        title="Browse every task on your Meshy account and import any completed STL"
+      >
+        <Sparkles size={10} /> Browse Meshy Library
+      </button>
+      <a
+        href="https://app.meshy.ai/"
+        target="_blank"
+        rel="noreferrer"
+        className="flex items-center justify-center gap-1 font-mono text-[9px] text-j-cdim hover:text-j-cyan"
+      >
+        <ExternalLink size={9} /> open meshy.ai
+      </a>
     </div>
   )
 }
@@ -328,6 +348,7 @@ export default function ModelSources() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [thingiverseOpen, setThingiverseOpen] = useState(false)
+  const [meshyBrowseOpen, setMeshyBrowseOpen] = useState(false)
   // Use a ref so the WS callback can refresh without re-subscribing on every state change
   const reloadRef = useRef<() => void>(() => {})
 
@@ -464,7 +485,11 @@ export default function ModelSources() {
           </span>
         </div>
         <div className="flex-1 p-4 overflow-y-auto space-y-3">
-          <MeshyRetrievals active={meshyActive} onCancel={handleCancelMeshy} />
+          <MeshyRetrievals
+            active={meshyActive}
+            onCancel={handleCancelMeshy}
+            onBrowse={() => setMeshyBrowseOpen(true)}
+          />
           <OtherInlets onOpenThingiverse={() => setThingiverseOpen(true)} />
         </div>
       </div>
@@ -472,6 +497,11 @@ export default function ModelSources() {
       <ThingiverseSearchModal
         open={thingiverseOpen}
         onClose={() => setThingiverseOpen(false)}
+        onImported={load}
+      />
+      <MeshyBrowseModal
+        open={meshyBrowseOpen}
+        onClose={() => setMeshyBrowseOpen(false)}
         onImported={load}
       />
     </div>
