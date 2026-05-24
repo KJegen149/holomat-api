@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import ThingiverseSearchModal from '../components/ThingiverseSearchModal'
 import MeshyBrowseModal from '../components/MeshyBrowseModal'
+import MakerWorldPasteModal from '../components/MakerWorldPasteModal'
 import {
   fetchSourceStls, deleteSourceStl,
   queuePrintJob, fetchPrintProfiles,
@@ -112,6 +113,12 @@ function StlCard({
                           px-1.5 py-0.5 rounded-sm bg-j-bg/85 border ${SOURCE_COLOR[stl.source]}`}>
           {SOURCE_LABEL[stl.source]}
         </span>
+        {stl.format === '3mf' && (
+          <span className="absolute bottom-1.5 right-1.5 text-[8px] font-mono tracking-[0.15em] uppercase
+                           px-1.5 py-0.5 rounded-sm bg-j-bg/85 border border-j-amber/40 text-j-amber">
+            3MF
+          </span>
+        )}
       </div>
 
       {/* Info */}
@@ -299,11 +306,13 @@ function MeshyRetrievals({
 
 // ── Other inlets (still placeholders) ───────────────────────────────────────
 
-function OtherInlets({ onOpenThingiverse }: { onOpenThingiverse: () => void }) {
-  const placeholders: { label: string; icon: typeof Box; tip: string }[] = [
-    { label: 'MakerWorld',  icon: Globe,  tip: 'Browse MakerWorld — coming soon' },
-    { label: 'TinkerCad',   icon: Pencil, tip: 'Open TinkerCad — coming soon' },
-  ]
+function OtherInlets({
+  onOpenThingiverse,
+  onOpenMakerWorld,
+}: {
+  onOpenThingiverse: () => void
+  onOpenMakerWorld: () => void
+}) {
   return (
     <div className="border border-j-border rounded-sm p-3">
       <div className="font-mono text-[9px] text-j-cdim tracking-[0.2em] uppercase mb-2">
@@ -318,18 +327,23 @@ function OtherInlets({ onOpenThingiverse }: { onOpenThingiverse: () => void }) {
         >
           <Search size={11} /> Thingiverse
         </button>
-        {placeholders.map(({ label, icon: Icon, tip }) => (
-          <button
-            key={label}
-            disabled
-            title={tip}
-            className="flex items-center justify-center gap-1.5 py-1.5 border border-j-border
-                       text-j-cdim opacity-50 cursor-not-allowed rounded-sm
-                       font-mono text-[10px] tracking-[0.05em] uppercase"
-          >
-            <Icon size={11} /> {label}
-          </button>
-        ))}
+        <button
+          onClick={onOpenMakerWorld}
+          className="flex items-center justify-center gap-1.5 py-1.5 border border-j-border
+                     text-j-muted hover:text-j-cyan hover:border-j-cyan transition-colors rounded-sm
+                     font-mono text-[10px] tracking-[0.05em] uppercase"
+        >
+          <Globe size={11} /> MakerWorld URL
+        </button>
+        <button
+          disabled
+          title="Open TinkerCad — coming soon"
+          className="flex items-center justify-center gap-1.5 py-1.5 border border-j-border
+                     text-j-cdim opacity-50 cursor-not-allowed rounded-sm
+                     font-mono text-[10px] tracking-[0.05em] uppercase"
+        >
+          <Pencil size={11} /> TinkerCad
+        </button>
       </div>
       <p className="font-mono text-[9px] text-j-cdim mt-2 leading-relaxed">
         Drop into <span className="text-j-muted">\\KJLC-AI-01\HolomatSTL</span> for
@@ -349,6 +363,7 @@ export default function ModelSources() {
   const [error, setError] = useState<string | null>(null)
   const [thingiverseOpen, setThingiverseOpen] = useState(false)
   const [meshyBrowseOpen, setMeshyBrowseOpen] = useState(false)
+  const [makerWorldOpen, setMakerWorldOpen] = useState(false)
   // Use a ref so the WS callback can refresh without re-subscribing on every state change
   const reloadRef = useRef<() => void>(() => {})
 
@@ -490,7 +505,10 @@ export default function ModelSources() {
             onCancel={handleCancelMeshy}
             onBrowse={() => setMeshyBrowseOpen(true)}
           />
-          <OtherInlets onOpenThingiverse={() => setThingiverseOpen(true)} />
+          <OtherInlets
+            onOpenThingiverse={() => setThingiverseOpen(true)}
+            onOpenMakerWorld={() => setMakerWorldOpen(true)}
+          />
         </div>
       </div>
 
@@ -502,6 +520,11 @@ export default function ModelSources() {
       <MeshyBrowseModal
         open={meshyBrowseOpen}
         onClose={() => setMeshyBrowseOpen(false)}
+        onImported={load}
+      />
+      <MakerWorldPasteModal
+        open={makerWorldOpen}
+        onClose={() => setMakerWorldOpen(false)}
         onImported={load}
       />
     </div>
