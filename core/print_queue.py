@@ -21,7 +21,7 @@ THREE_MF_DIR  = Path("scan_data/3mfs")
 
 BUILTIN_PROFILES: list[dict] = [
     {"id": "draft",    "name": "Draft",    "layer_height": 0.28, "infill_percent": 15, "supports": "none", "is_builtin": True},
-    {"id": "standard", "name": "Standard", "layer_height": 0.20, "infill_percent": 15, "supports": "none", "is_builtin": True},
+    {"id": "standard", "name": "Standard", "layer_height": 0.20, "infill_percent": 15, "supports": "tree", "is_builtin": True},
     {"id": "fine",     "name": "Fine",     "layer_height": 0.10, "infill_percent": 20, "supports": "none", "is_builtin": True},
 ]
 

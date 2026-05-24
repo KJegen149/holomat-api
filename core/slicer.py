@@ -472,14 +472,7 @@ async def slice_model(
     stem        = Path(input_path).stem
     output_path = str(Path(output_dir) / f"{stem}.3mf")
 
-    # 3MF inputs (e.g. MakerWorld imports) already contain mesh + an embedded
-    # profile from the original publisher. Pass them straight to OrcaSlicer so
-    # --load-settings can override the machine/process to the P1S; skip the
-    # STL→3MF rebuild step entirely. STL inputs go through the build path.
-    input_is_3mf = Path(input_path).suffix.lower() == ".3mf"
-    project_bytes: Optional[bytes] = None
-    if not input_is_3mf:
-        project_bytes = _build_project_3mf(input_path, machine, process, filament)
+    project_bytes = _build_project_3mf(input_path, machine, process, filament)
 
     # Build minimal machine + process JSONs for --load-settings.
     #
@@ -567,19 +560,11 @@ async def slice_model(
     with open(fila_settings_path, "w") as _f:
         json.dump(filament_for_cli, _f, indent=2)
 
-    if input_is_3mf:
-        # Use the user-supplied 3MF directly; OrcaSlicer reads its mesh and
-        # the --load-settings JSONs above override the machine/process so the
-        # P1S profile is used regardless of what the source 3MF embedded.
-        fd = -1
-        project_path = input_path
-    else:
-        fd, project_path = tempfile.mkstemp(suffix=".3mf", prefix="orca_proj_")
+    fd, project_path = tempfile.mkstemp(suffix=".3mf", prefix="orca_proj_")
     try:
-        if not input_is_3mf and project_bytes is not None:
-            os.write(fd, project_bytes)
-            os.close(fd)
-            fd = -1
+        os.write(fd, project_bytes)
+        os.close(fd)
+        fd = -1
 
         orca_bin = ORCA_APPIMAGE if ORCA_APPIMAGE else ORCA_CLI
         # --load-settings takes machine;process (semicolon-separated).
@@ -636,10 +621,8 @@ async def slice_model(
         if fd >= 0:
             with contextlib.suppress(OSError):
                 os.close(fd)
-        # Only clean up the temp project — never the user-supplied 3MF input.
-        if not input_is_3mf:
-            with contextlib.suppress(OSError):
-                os.unlink(project_path)
+        with contextlib.suppress(OSError):
+            os.unlink(project_path)
         # Settings JSONs are kept at /tmp/orca_holomat_*.json for debugging.
 
 
