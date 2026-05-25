@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Settings as SettingsIcon, Save, Loader2, RotateCcw, CheckCircle, Power, Zap, Circle, KeyRound } from 'lucide-react'
 import { fetchSettings, saveSettings, restartService, testConnections, bambuDryRun, bambuCloudAuth, meshyTest, fetchHealth, changePassword, type ConnectionTestResult } from '../api/client'
+import Calibration from './Calibration'
 
 // ── Field & section definitions ─────────────────────────────────────────────
 
@@ -87,6 +88,11 @@ const SECTIONS: SectionDef[] = [
       { key: 'WYOMING_TTS_URL',          label: 'TTS Worker URL',        type: 'text', placeholder: 'https://wyoming-tts.kjeg.workers.dev' },
       { key: 'WYOMING_LLM_URL',          label: 'LLM Worker URL',        type: 'text', placeholder: 'https://wyoming-llm.kjeg.workers.dev' },
     ],
+  },
+  {
+    id: 'calibration',
+    label: 'Calibration',
+    fields: [],
   },
   {
     id: 'administration',
@@ -882,24 +888,29 @@ export default function Settings() {
           </div>
         )}
 
-        {activeSection === 'administration'
-          ? <div className="space-y-4">
-              <ChangePasswordPanel />
-              <AdminPanel />
-            </div>
-          : <>
-              <SectionPanel
-                section={currentSection}
-                serverValues={serverValues}
-                formValues={formValues}
-                onChange={handleChange}
-                onSave={handleSave}
-                saving={saving}
-                savedSection={savedSection}
-              />
-              {activeSection === 'printer' && <BambuOtpPanel />}
-            </>
-        }
+        {activeSection === 'administration' ? (
+          <div className="space-y-4">
+            <ChangePasswordPanel />
+            <AdminPanel />
+          </div>
+        ) : activeSection === 'calibration' ? (
+          <div className="-m-6 h-[calc(100%+3rem)]">
+            <Calibration />
+          </div>
+        ) : (
+          <>
+            <SectionPanel
+              section={currentSection}
+              serverValues={serverValues}
+              formValues={formValues}
+              onChange={handleChange}
+              onSave={handleSave}
+              saving={saving}
+              savedSection={savedSection}
+            />
+            {activeSection === 'printer' && <BambuOtpPanel />}
+          </>
+        )}
       </div>
     </div>
   )

@@ -16,28 +16,80 @@
   }
 
   body {
-    background-color: rgb(5 5 8);
-    color: rgb(200 240 248);
+    color: rgb(220 240 248);
     font-family: 'Rajdhani', sans-serif;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    background-color: rgb(5 6 9);
+    background-image:
+      radial-gradient(ellipse at 25% 15%, rgba(80, 60, 160, 0.14) 0%, transparent 55%),
+      radial-gradient(ellipse at 75% 85%, rgba(0, 130, 160, 0.12) 0%, transparent 55%),
+      radial-gradient(ellipse at 50% 50%, rgba(20, 30, 50, 0.5) 0%, transparent 70%);
+    -webkit-font-smoothing: antialiased;
   }
 
-  /* CRT scanline overlay */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background: repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 2px,
-      rgba(0, 200, 232, 0.015) 2px,
-      rgba(0, 200, 232, 0.015) 4px
-    );
-    pointer-events: none;
-    z-index: 9999;
-  }
-
-  ::-webkit-scrollbar { width: 3px; }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgb(0 104 120); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(0, 220, 255, 0.18);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 220, 255, 0.35);
+  }
+}
+
+@layer components {
+  /* Soft, blurred, gradient-edged panel — replaces the old hard-bordered surface. */
+  .j-panel {
+    @apply bg-j-surf/55 backdrop-blur-j border border-j-border/20 rounded-j-lg relative overflow-hidden shadow-j-panel;
+  }
+  .j-panel::before {
+    content: '';
+    position: absolute; inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background: linear-gradient(135deg, rgba(0, 220, 255, 0.06), transparent 40%, rgba(140, 110, 255, 0.04));
+  }
+
+  .j-chip {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-full bg-j-surf-lo/70 border border-j-border/20
+           text-j-text text-sm cursor-pointer backdrop-blur transition-all duration-200;
+  }
+  .j-chip:hover {
+    @apply border-j-border/55 bg-j-surf-hi/80 -translate-y-px shadow-j-glow;
+  }
+  .j-chip.is-active {
+    @apply border-j-cyan text-j-cyan bg-j-cyan/10;
+  }
+
+  .j-status-pill {
+    @apply inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-j-surf-lo/70 border border-j-border/20
+           text-[11px] tracking-[0.15em] uppercase text-j-muted;
+  }
+  .j-status-pill > .dot {
+    @apply w-[7px] h-[7px] rounded-full bg-j-green animate-j-breathe;
+    box-shadow: 0 0 8px rgb(50 255 160);
+  }
+  .j-status-pill.warn > .dot {
+    @apply bg-j-amber;
+    box-shadow: 0 0 8px rgb(255 180 60);
+  }
+  .j-status-pill.err > .dot {
+    @apply bg-j-red;
+    box-shadow: 0 0 8px rgb(255 80 100);
+  }
+  .j-status-pill.idle > .dot {
+    @apply bg-j-muted-dim animate-none;
+    box-shadow: none;
+  }
+
+  .j-brand-wordmark {
+    font-weight: 600;
+    letter-spacing: 0.25em;
+    background-image: linear-gradient(120deg, rgb(0 220 255), rgb(140 110 255) 120%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
 }
