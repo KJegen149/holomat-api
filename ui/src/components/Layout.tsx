@@ -76,8 +76,10 @@ export default function Layout({ children, logs, health, healthError, username, 
         <div className="font-mono text-base font-medium tracking-[0.12em] text-j-text">{time}</div>
       </header>
 
-      {/* Content row — no sidebar; the orbital summon nav is page-overlay (PR 3). */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* Content row — orbital summon nav is page-overlay (SummonNav); Console
+          is a slide-out from the right edge, positioned absolutely against
+          this row. */}
+      <div className="relative flex flex-1 overflow-hidden">
         <main className="flex-1 overflow-hidden relative">
           {children}
         </main>
