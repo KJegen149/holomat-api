@@ -1,0 +1,270 @@
+/* Holomat Phase 13 — shared theme tokens & primitives.
+   Soft, futuristic re-skin: rounded surfaces, backdrop blur, gradient strokes,
+   secondary violet accent to break the pure cyan-on-black "90s futuristic" look. */
+
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap');
+
+:root {
+  --bg-deep:        #050609;
+  --surface:        rgba(15, 20, 28, 0.55);
+  --surface-hi:     rgba(25, 32, 42, 0.78);
+  --surface-low:    rgba(10, 14, 20, 0.7);
+  --border-soft:    rgba(0, 200, 232, 0.18);
+  --border-strong:  rgba(0, 220, 255, 0.55);
+  --border-violet:  rgba(140, 110, 255, 0.30);
+
+  --cyan:           rgb(0, 220, 255);
+  --cyan-dim:       rgb(0, 130, 160);
+  --cyan-deep:      rgb(0, 80, 110);
+  --violet:         rgb(140, 110, 255);
+  --violet-dim:     rgb(80, 60, 160);
+  --text:           rgb(220, 240, 248);
+  --muted:          rgb(120, 160, 175);
+  --muted-dim:      rgb(70, 100, 115);
+  --green:          rgb(50, 255, 160);
+  --amber:          rgb(255, 180, 60);
+  --red:            rgb(255, 80, 100);
+
+  --r-sm:  10px;
+  --r-md:  16px;
+  --r-lg:  22px;
+  --r-xl:  32px;
+  --r-pill: 9999px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  color: var(--text);
+  font-family: 'Rajdhani', system-ui, sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  background:
+    radial-gradient(ellipse at 25% 15%, rgba(80, 60, 160, 0.14) 0%, transparent 55%),
+    radial-gradient(ellipse at 75% 85%, rgba(0, 130, 160, 0.12) 0%, transparent 55%),
+    radial-gradient(ellipse at 50% 50%, rgba(20, 30, 50, 0.5) 0%, transparent 70%),
+    var(--bg-deep);
+  -webkit-font-smoothing: antialiased;
+}
+
+.mono { font-family: 'JetBrains Mono', monospace; }
+.cap  { text-transform: uppercase; letter-spacing: 0.15em; }
+.dim  { color: var(--muted); }
+
+/* Panels --- soft, blurred, gradient-edged */
+.panel {
+  background: var(--surface);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border-soft);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    inset 0 0 24px rgba(0, 220, 255, 0.04),
+    0 12px 40px rgba(0, 0, 0, 0.45);
+  position: relative;
+  overflow: hidden;
+}
+.panel::before {
+  content: '';
+  position: absolute; inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(0, 220, 255, 0.06), transparent 40%, rgba(140, 110, 255, 0.04));
+}
+
+.panel-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--muted);
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+
+/* Buttons / chips */
+.chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--r-pill);
+  background: var(--surface-low);
+  border: 1px solid var(--border-soft);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: all 180ms ease;
+}
+.chip:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hi);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 18px rgba(0, 220, 255, 0.15);
+}
+.chip.active {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: rgba(0, 220, 255, 0.08);
+  box-shadow: inset 0 0 12px rgba(0, 220, 255, 0.15), 0 0 18px rgba(0, 220, 255, 0.2);
+}
+
+/* Top bar */
+.topbar {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: 56px;
+  padding: 0 24px;
+  display: flex; align-items: center; gap: 18px;
+  z-index: 20;
+  background: linear-gradient(180deg, rgba(5, 6, 9, 0.85), rgba(5, 6, 9, 0.4));
+  backdrop-filter: blur(12px);
+}
+.brand-wordmark {
+  font-weight: 600; font-size: 18px;
+  letter-spacing: 0.25em;
+  background: linear-gradient(120deg, var(--cyan), var(--violet) 120%);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
+}
+.brand-sub {
+  font-size: 9px; color: var(--muted-dim);
+  letter-spacing: 0.18em; text-transform: uppercase;
+}
+.spacer { flex: 1; }
+
+.status-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 14px;
+  border-radius: var(--r-pill);
+  background: var(--surface-low);
+  border: 1px solid var(--border-soft);
+  font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase;
+  color: var(--muted);
+}
+.status-pill .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: breathe 2.4s ease-in-out infinite;
+}
+.status-pill.warn .dot { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+.status-pill.err  .dot { background: var(--red);   box-shadow: 0 0 8px var(--red); }
+
+@keyframes breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.45; transform: scale(0.85); }
+}
+
+.clock {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 15px; font-weight: 500;
+  color: var(--text);
+  letter-spacing: 0.12em;
+}
+
+/* Main layout area --- below topbar */
+.viewport {
+  position: fixed;
+  inset: 56px 0 0 0;
+  overflow: hidden;
+}
+
+/* Dashboard mode toggle (mockup-only chrome) */
+.mode-toggle {
+  position: fixed;
+  top: 70px; right: 20px;
+  z-index: 30;
+  display: flex; gap: 6px;
+  padding: 6px;
+  background: var(--surface);
+  backdrop-filter: blur(12px);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border-soft);
+}
+.mode-toggle button {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  padding: 6px 14px;
+  font-family: inherit;
+  font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase;
+  cursor: pointer;
+  border-radius: var(--r-pill);
+  transition: all 160ms ease;
+}
+.mode-toggle button:hover { color: var(--text); }
+.mode-toggle button.active {
+  color: var(--cyan);
+  background: rgba(0, 220, 255, 0.1);
+  box-shadow: inset 0 0 10px rgba(0, 220, 255, 0.12);
+}
+
+/* Variant label (mockup-only) */
+.variant-label {
+  position: fixed; bottom: 14px; left: 50%;
+  transform: translateX(-50%);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; color: var(--muted-dim);
+  letter-spacing: 0.25em; text-transform: uppercase;
+  z-index: 30;
+  pointer-events: none;
+}
+
+/* HUD cards (floating around dashboard) */
+.hud-card {
+  background: var(--surface);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  min-width: 160px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  position: absolute;
+  pointer-events: auto;
+}
+.hud-card .label {
+  font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 6px;
+}
+.hud-card .value {
+  font-size: 22px; font-weight: 500; color: var(--text);
+}
+.hud-card .sub {
+  font-size: 11px; color: var(--muted); margin-top: 2px;
+}
+
+/* Mockup index nav (used in index.html) */
+.mockup-grid {
+  display: grid; gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  padding: 80px 40px;
+}
+.mockup-card {
+  text-decoration: none;
+  display: block;
+  padding: 24px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-soft);
+  transition: all 200ms ease;
+  color: inherit;
+}
+.mockup-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--border-strong);
+  box-shadow: 0 14px 40px rgba(0, 220, 255, 0.18);
+}
+.mockup-card h2 {
+  margin: 0 0 6px; font-size: 16px; letter-spacing: 0.15em;
+  text-transform: uppercase; color: var(--cyan);
+}
+.mockup-card p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+/* Scroll-friendly index body */
+body.scrollable { overflow: auto; }
+body.scrollable .topbar { position: sticky; }

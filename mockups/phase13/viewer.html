@@ -1,0 +1,1226 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Holomat Phase 13 · Unified Viewer</title>
+  <style>
+    /* ────────── shared theme tokens ────────── */
+    @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap');
+
+    :root {
+      --bg-deep:        #050609;
+      --surface:        rgba(15, 20, 28, 0.55);
+      --surface-hi:     rgba(25, 32, 42, 0.78);
+      --surface-low:    rgba(10, 14, 20, 0.7);
+      --border-soft:    rgba(0, 200, 232, 0.18);
+      --border-strong:  rgba(0, 220, 255, 0.55);
+      --border-violet:  rgba(140, 110, 255, 0.30);
+      --cyan:           rgb(0, 220, 255);
+      --cyan-dim:       rgb(0, 130, 160);
+      --cyan-deep:      rgb(0, 80, 110);
+      --violet:         rgb(140, 110, 255);
+      --violet-dim:     rgb(80, 60, 160);
+      --text:           rgb(220, 240, 248);
+      --muted:          rgb(120, 160, 175);
+      --muted-dim:      rgb(70, 100, 115);
+      --green:          rgb(50, 255, 160);
+      --amber:          rgb(255, 180, 60);
+      --red:            rgb(255, 80, 100);
+      --r-sm:  10px;
+      --r-md:  16px;
+      --r-lg:  22px;
+      --r-xl:  32px;
+      --r-pill: 9999px;
+    }
+
+    @property --scale { syntax: '<number>'; inherits: false; initial-value: 1; }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; height: 100%; width: 100%;
+      overflow: hidden; color: var(--text);
+      font-family: 'Rajdhani', system-ui, sans-serif;
+      font-weight: 400; letter-spacing: 0.02em;
+      background:
+        radial-gradient(ellipse at 25% 15%, rgba(80, 60, 160, 0.14) 0%, transparent 55%),
+        radial-gradient(ellipse at 75% 85%, rgba(0, 130, 160, 0.12) 0%, transparent 55%),
+        radial-gradient(ellipse at 50% 50%, rgba(20, 30, 50, 0.5) 0%, transparent 70%),
+        var(--bg-deep);
+      -webkit-font-smoothing: antialiased;
+    }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .cap  { text-transform: uppercase; letter-spacing: 0.15em; }
+    .dim  { color: var(--muted); }
+
+    .panel {
+      background: var(--surface);
+      backdrop-filter: blur(16px) saturate(140%);
+      -webkit-backdrop-filter: blur(16px) saturate(140%);
+      border-radius: var(--r-lg);
+      border: 1px solid var(--border-soft);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.04),
+        inset 0 0 24px rgba(0, 220, 255, 0.04),
+        0 12px 40px rgba(0, 0, 0, 0.45);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .chip {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 16px; border-radius: var(--r-pill);
+      background: var(--surface-low); border: 1px solid var(--border-soft);
+      color: var(--text); font-size: 13px; cursor: pointer;
+      backdrop-filter: blur(8px);
+      transition: all 180ms ease;
+      font-family: inherit;
+    }
+    .chip:hover {
+      border-color: var(--border-strong);
+      background: var(--surface-hi);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 18px rgba(0, 220, 255, 0.15);
+    }
+
+    /* ────────── unified top bar + toolbar ────────── */
+    .topbar {
+      position: fixed; top: 0; left: 0; right: 0;
+      height: 56px; padding: 0 24px;
+      display: flex; align-items: center; gap: 18px;
+      z-index: 25;
+      background: linear-gradient(180deg, rgba(5, 6, 9, 0.92), rgba(5, 6, 9, 0.55));
+      backdrop-filter: blur(14px);
+    }
+    .brand-wordmark {
+      font-weight: 600; font-size: 18px; letter-spacing: 0.25em;
+      background: linear-gradient(120deg, var(--cyan), var(--violet) 120%);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .brand-sub {
+      font-size: 9px; color: var(--muted-dim);
+      letter-spacing: 0.18em; text-transform: uppercase;
+    }
+    .spacer { flex: 1; }
+    .clock {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 15px; font-weight: 500; color: var(--text);
+      letter-spacing: 0.12em;
+    }
+    .status-pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 14px; border-radius: var(--r-pill);
+      background: var(--surface-low); border: 1px solid var(--border-soft);
+      font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase;
+      color: var(--muted);
+    }
+    .status-pill .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--green); box-shadow: 0 0 8px var(--green);
+      animation: breathe 2.4s ease-in-out infinite;
+    }
+    @keyframes breathe {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: 0.45; transform: scale(0.85); }
+    }
+
+    .toolbar {
+      position: fixed; top: 56px; left: 0; right: 0;
+      height: 52px; z-index: 24;
+      display: flex; align-items: center; justify-content: center; gap: 14px;
+      padding: 0 24px;
+      background: linear-gradient(180deg, rgba(5, 6, 9, 0.7), rgba(5, 6, 9, 0.3));
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .seg {
+      display: flex; gap: 4px;
+      padding: 5px;
+      background: var(--surface);
+      border: 1px solid var(--border-soft);
+      border-radius: var(--r-pill);
+      backdrop-filter: blur(12px);
+    }
+    .seg-label {
+      font-size: 9px; letter-spacing: 0.25em; text-transform: uppercase;
+      color: var(--muted-dim); padding-right: 4px; align-self: center;
+    }
+    .seg button {
+      background: transparent; border: 0;
+      color: var(--muted); padding: 7px 14px;
+      font-family: inherit;
+      font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+      cursor: pointer;
+      border-radius: var(--r-pill);
+      transition: all 160ms ease;
+      font-weight: 500;
+    }
+    .seg button:hover { color: var(--text); }
+    .seg button.active {
+      color: var(--cyan); background: rgba(0, 220, 255, 0.12);
+      box-shadow: inset 0 0 10px rgba(0, 220, 255, 0.14);
+    }
+
+    .viewport { position: fixed; inset: 108px 0 0 0; overflow: hidden; }
+
+    .variant-caption {
+      position: fixed; bottom: 14px; left: 50%;
+      transform: translateX(-50%);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; color: var(--muted-dim);
+      letter-spacing: 0.25em; text-transform: uppercase;
+      z-index: 30; pointer-events: none;
+    }
+
+    /* ────────── dashboard chrome ────────── */
+    .hud-card {
+      background: var(--surface);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-soft);
+      border-radius: var(--r-md);
+      padding: 14px 16px; min-width: 160px;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+      position: absolute; pointer-events: auto;
+    }
+    .hud-card .label {
+      font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 6px;
+    }
+    .hud-card .value { font-size: 22px; font-weight: 500; color: var(--text); }
+    .hud-card .sub   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    /* ────────── Variant A — Floating arc dock ────────── */
+    .arc-dock {
+      position: fixed;
+      bottom: 28px; left: 50%;
+      transform: translateX(-50%);
+      display: flex; align-items: flex-end; gap: 6px;
+      padding: 14px 22px;
+      background: var(--surface-hi);
+      backdrop-filter: blur(20px) saturate(150%);
+      border: 1px solid var(--border-soft);
+      border-radius: 80px 80px 32px 32px;
+      box-shadow:
+        0 -2px 24px rgba(0, 220, 255, 0.08),
+        0 18px 44px rgba(0, 0, 0, 0.55),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      z-index: 15;
+    }
+    .arc-dock::before {
+      content: ''; position: absolute; inset: 0;
+      border-radius: inherit; pointer-events: none;
+      background: linear-gradient(180deg, rgba(0,220,255,0.08), transparent 60%);
+    }
+    .arc-item {
+      width: 56px; height: 56px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 2px; border: 0; background: transparent; cursor: pointer;
+      color: var(--muted); border-radius: 22px;
+      transition: all 220ms cubic-bezier(.2,.7,.2,1);
+      position: relative;
+    }
+    .arc-item .arc-label {
+      font-size: 8px; letter-spacing: 0.18em; text-transform: uppercase;
+      opacity: 0; transform: translateY(4px);
+      transition: all 200ms ease;
+      position: absolute; bottom: -14px; white-space: nowrap;
+    }
+    .arc-item:hover {
+      color: var(--text); background: rgba(0, 220, 255, 0.06);
+      transform: translateY(-4px);
+    }
+    .arc-item:hover .arc-label { opacity: 1; transform: translateY(0); }
+    .arc-item.active {
+      color: var(--cyan);
+      background: rgba(0, 220, 255, 0.14);
+      box-shadow:
+        inset 0 0 14px rgba(0, 220, 255, 0.25),
+        0 0 26px rgba(0, 220, 255, 0.35),
+        0 8px 18px rgba(0, 0, 0, 0.4);
+      transform: translateY(-10px);
+    }
+    .arc-item.active::after {
+      content: ''; position: absolute; bottom: -22px; left: 50%;
+      transform: translateX(-50%);
+      width: 28px; height: 2px; border-radius: 2px;
+      background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+      box-shadow: 0 0 8px var(--cyan);
+    }
+
+    /* ────────── Variant B — Radial summon ────────── */
+    .summon-hint {
+      position: fixed; bottom: 18px; right: 22px;
+      display: flex; align-items: center; gap: 10px;
+      z-index: 18; pointer-events: none;
+    }
+    .summon-orb {
+      width: 56px; height: 56px; border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, rgba(0,220,255,0.4), rgba(0,220,255,0.05));
+      border: 1px solid var(--border-strong);
+      box-shadow: 0 0 24px rgba(0, 220, 255, 0.4), inset 0 0 12px rgba(0,220,255,0.2);
+      animation: orb-pulse 2.6s ease-in-out infinite;
+      pointer-events: auto; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--cyan);
+    }
+    .summon-hint .hint-text {
+      font-size: 10px; letter-spacing: 0.2em; color: var(--muted);
+      text-transform: uppercase;
+    }
+    @keyframes orb-pulse {
+      0%, 100% { transform: scale(1);   box-shadow: 0 0 24px rgba(0,220,255,0.35), inset 0 0 12px rgba(0,220,255,0.2); }
+      50%      { transform: scale(1.08); box-shadow: 0 0 36px rgba(0,220,255,0.6),  inset 0 0 16px rgba(0,220,255,0.35); }
+    }
+    .radial-wheel {
+      position: fixed; width: 360px; height: 360px;
+      transform: translate(-50%, -50%) scale(0.6);
+      opacity: 0; pointer-events: none;
+      transition: opacity 180ms ease, transform 220ms cubic-bezier(.2,.8,.2,1);
+      z-index: 50;
+    }
+    .radial-wheel.open {
+      opacity: 1; pointer-events: auto; transform: translate(-50%, -50%) scale(1);
+    }
+    .radial-center {
+      position: absolute; left: 50%; top: 50%;
+      width: 90px; height: 90px;
+      transform: translate(-50%, -50%); border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, rgba(0,220,255,0.35), rgba(0,220,255,0.04) 75%);
+      border: 1px solid var(--border-strong);
+      box-shadow: inset 0 0 20px rgba(0,220,255,0.2), 0 0 32px rgba(0,220,255,0.3);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--cyan); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
+    }
+    .radial-item {
+      position: absolute; left: 50%; top: 50%;
+      width: 78px; height: 78px;
+      margin-left: -39px; margin-top: -39px;
+      border-radius: 50%;
+      background: var(--surface-hi); backdrop-filter: blur(12px);
+      border: 1px solid var(--border-soft);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 4px; color: var(--text); cursor: pointer;
+      transition: all 200ms cubic-bezier(.2,.7,.2,1);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.5);
+    }
+    .radial-item:hover, .radial-item.active {
+      color: var(--cyan); border-color: var(--border-strong);
+      box-shadow: 0 0 24px rgba(0,220,255,0.35), inset 0 0 14px rgba(0,220,255,0.18);
+      transform: scale(1.08);
+    }
+    .radial-item .lbl {
+      font-size: 8px; letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--muted);
+    }
+    .radial-item:hover .lbl, .radial-item.active .lbl { color: var(--cyan); }
+    .radial-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(5, 6, 9, 0.4); backdrop-filter: blur(4px);
+      opacity: 0; pointer-events: none;
+      transition: opacity 200ms ease;
+      z-index: 40;
+    }
+    .radial-backdrop.open { opacity: 1; pointer-events: auto; }
+
+    /* ────────── Variant C — Edge swipe rail ────────── */
+    .edge-strip {
+      position: fixed; left: 0; top: 108px; bottom: 0;
+      width: 8px;
+      background: linear-gradient(180deg,
+        transparent 0%, rgba(0,220,255,0.2) 12%, rgba(0,220,255,0.55) 50%,
+        rgba(140,110,255,0.4) 75%, transparent 100%);
+      box-shadow: 0 0 14px rgba(0,220,255,0.35);
+      z-index: 20; cursor: pointer;
+    }
+    .edge-strip::after {
+      content: ''; position: absolute; right: -4px; top: 50%;
+      transform: translateY(-50%);
+      width: 4px; height: 64px;
+      background: var(--cyan); border-radius: 4px;
+      box-shadow: 0 0 12px var(--cyan); opacity: 0.6;
+    }
+    .rail {
+      position: fixed; left: 18px; top: 50%;
+      transform: translate(-110%, -50%);
+      opacity: 0; pointer-events: none;
+      transition: all 260ms cubic-bezier(.2,.7,.2,1);
+      z-index: 25;
+      display: flex; flex-direction: column; gap: 6px;
+      padding: 14px 10px;
+      background: var(--surface-hi);
+      backdrop-filter: blur(18px) saturate(150%);
+      border: 1px solid var(--border-soft);
+      border-radius: 28px;
+      box-shadow:
+        0 18px 44px rgba(0, 0, 0, 0.55),
+        0 0 32px rgba(0, 220, 255, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+    .rail.open { transform: translate(0, -50%); opacity: 1; pointer-events: auto; }
+    .rail-item {
+      display: flex; align-items: center; gap: 14px;
+      padding: 12px 16px 12px 12px;
+      border: 0; background: transparent;
+      color: var(--muted); cursor: pointer;
+      border-radius: 18px; font-family: inherit;
+      font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase;
+      transition: all 180ms ease;
+      width: 220px; text-align: left;
+    }
+    .rail-item:hover { color: var(--text); background: rgba(0, 220, 255, 0.05); }
+    .rail-item.active {
+      color: var(--cyan); background: rgba(0, 220, 255, 0.1);
+      box-shadow: inset 0 0 16px rgba(0, 220, 255, 0.18);
+    }
+    .rail-item .ic {
+      width: 38px; height: 38px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 14px;
+      background: rgba(0, 220, 255, 0.05);
+      border: 1px solid rgba(0,220,255,0.12);
+      flex-shrink: 0;
+    }
+    .rail-item.active .ic {
+      background: rgba(0, 220, 255, 0.18);
+      border-color: var(--cyan);
+      box-shadow: 0 0 14px rgba(0, 220, 255, 0.35);
+    }
+
+    /* ────────── Variant D — Orbital HUD ────────── */
+    .orbit-host {
+      position: absolute; inset: 0;
+      pointer-events: none; z-index: 12;
+    }
+    .orbit-track {
+      position: absolute; left: 50%; top: 50%;
+      width: min(82vh, 82vw); height: min(82vh, 82vw);
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      border: 1px dashed rgba(0, 220, 255, 0.10);
+      box-shadow: inset 0 0 30px rgba(0, 220, 255, 0.05);
+    }
+    .orbit-track::before, .orbit-track::after {
+      content: ''; position: absolute; inset: 28px;
+      border-radius: 50%;
+      border: 1px solid rgba(140, 110, 255, 0.08);
+    }
+    .orbit-track::after { inset: 60px; border-color: rgba(0, 220, 255, 0.08); }
+    .orbit-item {
+      --tx: 0px; --ty: 0px; --scale: 1;
+      position: absolute; left: 50%; top: 50%;
+      width: 64px; height: 64px;
+      margin: -32px 0 0 -32px;
+      border-radius: 50%;
+      background: var(--surface-hi); backdrop-filter: blur(14px);
+      border: 1px solid var(--border-soft);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text); cursor: pointer;
+      pointer-events: auto;
+      transition: --scale 220ms ease, color 200ms, box-shadow 200ms, border-color 200ms, background 200ms;
+      box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+      transform: translate(var(--tx), var(--ty)) scale(var(--scale));
+    }
+    .orbit-item .lbl {
+      position: absolute; top: 100%; left: 50%;
+      transform: translateX(-50%) translateY(6px);
+      font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--muted); white-space: nowrap;
+      opacity: 0; transition: opacity 200ms ease;
+    }
+    .orbit-item:hover .lbl, .orbit-item.active .lbl { opacity: 1; color: var(--cyan); }
+    .orbit-item:hover {
+      --scale: 1.12;
+      color: var(--cyan); border-color: var(--border-strong);
+      box-shadow: 0 0 24px rgba(0, 220, 255, 0.4), 0 6px 22px rgba(0, 0, 0, 0.5);
+    }
+    .orbit-item.active {
+      color: var(--cyan); border-color: var(--cyan);
+      background: rgba(0, 220, 255, 0.14);
+      box-shadow: 0 0 36px rgba(0, 220, 255, 0.55), inset 0 0 18px rgba(0, 220, 255, 0.22);
+    }
+
+    /* ────────── Variant E — Orbital Summon (the chosen hybrid) ────────── */
+    /* Particle dashboard stays the hero. A discoverability orb pulses in
+       the corner; long-press anywhere (or tap the orb) summons an orbital
+       ring of nav items, centered on the screen, on top of a dimmed backdrop.
+       Tap an item → it pulses, ring fades out. */
+    .orb-summon-host {
+      position: fixed; left: 50%; top: 50%;
+      width: 0; height: 0;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 50;
+    }
+    .orb-summon-host .orbit-item {
+      --tx: 0px; --ty: 0px; --scale: 0.6;
+      width: 78px; height: 78px;
+      margin: -39px 0 0 -39px;
+      flex-direction: column; gap: 4px;
+      opacity: 0;
+      transition:
+        --tx 360ms cubic-bezier(.2,.8,.2,1),
+        --ty 360ms cubic-bezier(.2,.8,.2,1),
+        --scale 280ms cubic-bezier(.2,.7,.2,1),
+        opacity 220ms ease,
+        color 200ms, border-color 200ms, box-shadow 220ms, background 200ms;
+    }
+    .orb-summon-host.open .orbit-item {
+      --scale: 1;
+      opacity: 1;
+    }
+    .orb-summon-host .orbit-item .lbl {
+      position: absolute; top: 100%; left: 50%;
+      transform: translateX(-50%) translateY(8px);
+      font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--muted); white-space: nowrap;
+      opacity: 0; transition: opacity 200ms ease;
+    }
+    .orb-summon-host.open .orbit-item .lbl { opacity: 0.85; }
+    .orb-summon-host .orbit-item:hover .lbl { color: var(--cyan); opacity: 1; }
+    .orb-summon-host .orbit-item:hover { --scale: 1.12; }
+    .orb-summon-host .orbit-item.pulsing {
+      --scale: 1.18;
+      box-shadow: 0 0 48px rgba(0, 220, 255, 0.7), inset 0 0 22px rgba(0, 220, 255, 0.3);
+    }
+    /* Faint guide ring drawn at the orbit radius once open */
+    .orb-summon-host .summon-ring {
+      position: absolute; left: 50%; top: 50%;
+      width: 0; height: 0; border-radius: 50%;
+      border: 1px dashed rgba(0, 220, 255, 0);
+      transition: all 360ms cubic-bezier(.2,.8,.2,1);
+      transform: translate(-50%, -50%);
+    }
+    .orb-summon-host.open .summon-ring {
+      border-color: rgba(0, 220, 255, 0.15);
+      width: var(--orbit-d, 360px); height: var(--orbit-d, 360px);
+      box-shadow: inset 0 0 40px rgba(0, 220, 255, 0.05);
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Top bar -->
+  <div class="topbar">
+    <div>
+      <div class="brand-wordmark">JARVIS</div>
+      <div class="brand-sub">Phase 13 · Unified Mockup Viewer</div>
+    </div>
+    <div class="spacer"></div>
+    <div class="status-pill"><span class="dot"></span>Drafts</div>
+    <div class="clock" id="clock">--:--:--</div>
+  </div>
+
+  <!-- Selector toolbar -->
+  <div class="toolbar">
+    <div class="seg" data-key="nav">
+      <span class="seg-label">Nav</span>
+      <button data-val="E" class="active">E · Orbital Summon ★</button>
+      <button data-val="A">A · Arc Dock</button>
+      <button data-val="B">B · Radial</button>
+      <button data-val="C">C · Edge Rail</button>
+      <button data-val="D">D · Orbital</button>
+    </div>
+    <div class="seg" data-key="dash">
+      <span class="seg-label">Dashboard</span>
+      <button data-val="particles" class="active">Particles</button>
+      <button data-val="rings">Rings + Orb</button>
+      <button data-val="convo">Conversation</button>
+    </div>
+    <div class="seg" data-key="mode">
+      <span class="seg-label">Jarvis</span>
+      <button data-val="idle" class="active">Idle</button>
+      <button data-val="listening">Listening</button>
+      <button data-val="speaking">Speaking</button>
+    </div>
+  </div>
+
+  <div class="viewport" id="stage"></div>
+  <div class="variant-caption" id="caption">Variant A · Floating Arc Dock</div>
+
+<script>
+/* ═══════════════════════════ Inlined dashboard.js ═══════════════════════════ */
+
+const NAV_ITEMS = [
+  { id: 'dashboard',  label: 'Dashboard',     icon: 'dashboard' },
+  { id: 'scanner',    label: 'Scanner',       icon: 'scan' },
+  { id: 'gallery',    label: 'Gallery',       icon: 'image' },
+  { id: 'models',     label: 'Models',        icon: 'box' },
+  { id: 'print',      label: 'Print',         icon: 'printer' },
+  { id: 'ha',         label: 'Home Assistant',icon: 'home' },
+  { id: 'settings',   label: 'Settings',      icon: 'gear' },
+];
+
+const ICONS = {
+  dashboard: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+  scan:      '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="3" y1="12" x2="21" y2="12"/>',
+  image:     '<rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="9" cy="9" r="1.6"/><path d="m21 15-5-5L5 21"/>',
+  box:       '<path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7 12 12l8.7-5"/><path d="M12 22V12"/>',
+  printer:   '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8" rx="1"/>',
+  home:      '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+  gear:      '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.76l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.76-.32 1.6 1.6 0 0 0-1 1.46V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.46 1.6 1.6 0 0 0-1.76.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.76 1.6 1.6 0 0 0-1.46-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.46-1 1.6 1.6 0 0 0-.32-1.76l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.76.32H9a1.6 1.6 0 0 0 1-1.46V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.46 1.6 1.6 0 0 0 1.76-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.76V9a1.6 1.6 0 0 0 1.46 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.46 1z"/>',
+};
+function icon(id, size = 22) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${ICONS[id] || ''}</svg>`;
+}
+
+/* ───── Particle sphere ───── */
+class ParticleSphereDashboard {
+  constructor(root) {
+    this.root = root;
+    this.root.innerHTML = `
+      <canvas class="ps-canvas" style="position:absolute;inset:0;width:100%;height:100%;"></canvas>
+      <div class="ps-hud" style="position:absolute;inset:0;pointer-events:none;"></div>
+      <div class="ps-greet" style="position:absolute;left:50%;bottom:13%;transform:translateX(-50%);text-align:center;pointer-events:none;">
+        <div class="cap dim" style="font-size:10px;letter-spacing:0.3em;margin-bottom:8px;">JARVIS · READY</div>
+        <div style="font-size:18px;color:var(--text);font-weight:300;letter-spacing:0.04em;max-width:520px;">
+          Good afternoon, Kyle. Standing by.
+        </div>
+      </div>`;
+    this.canvas = root.querySelector('.ps-canvas');
+    this.hud = root.querySelector('.ps-hud');
+    this.greet = root.querySelector('.ps-greet');
+    this.ctx = this.canvas.getContext('2d');
+    this.particles = [];
+    this.audioLevel = 0;
+    this.mode = 'idle';
+    this.t0 = performance.now();
+    this.frame = 0;
+    this.placeHudCards();
+    this.initParticles();
+    this.resize();
+    this._onResize = () => this.resize();
+    window.addEventListener('resize', this._onResize);
+    this.loop();
+  }
+  placeHudCards() {
+    const cards = [
+      { top: '8%',  left: '4%',  label: 'Weather',  value: '68°F', sub: 'Clear · light wind' },
+      { top: '8%',  right: '4%', label: 'Print Q',  value: '1 active', sub: 'iPhone case · 42%' },
+      { bottom: '8%', left: '4%', label: 'Lights',  value: '6 on', sub: 'Office · Living' },
+      { bottom: '8%', right: '4%', label: 'Models', value: '23', sub: '4 ready to slice' },
+    ];
+    this.hud.innerHTML = cards.map(c => {
+      const pos = Object.entries(c).filter(([k]) => ['top','bottom','left','right'].includes(k))
+        .map(([k,v]) => `${k}:${v}`).join(';');
+      return `<div class="hud-card" style="${pos}">
+        <div class="label">${c.label}</div>
+        <div class="value">${c.value}</div>
+        <div class="sub">${c.sub}</div>
+      </div>`;
+    }).join('');
+  }
+  initParticles() {
+    const N = 750;
+    this.particles = [];
+    for (let i = 0; i < N; i++) {
+      const phi = Math.acos(1 - 2 * (i + 0.5) / N);
+      const theta = Math.PI * (1 + Math.sqrt(5)) * (i + 0.5);
+      this.particles.push({
+        ox: Math.sin(phi) * Math.cos(theta),
+        oy: Math.sin(phi) * Math.sin(theta),
+        oz: Math.cos(phi),
+        halo: Math.random() * 1.0 + 0.6,
+        seed: Math.random() * Math.PI * 2,
+      });
+    }
+    this.outer = [];
+    for (let i = 0; i < 220; i++) {
+      this.outer.push({
+        r: 1.05 + Math.random() * 0.6,
+        a: Math.random() * Math.PI * 2,
+        b: (Math.random() - 0.5) * Math.PI,
+        s: 0.6 + Math.random() * 0.5,
+        speed: 0.0002 + Math.random() * 0.0004,
+      });
+    }
+  }
+  resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const r = this.root.getBoundingClientRect();
+    this.canvas.width = r.width * dpr;
+    this.canvas.height = r.height * dpr;
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.w = r.width; this.h = r.height;
+  }
+  setMode(m) {
+    this.mode = m;
+    this.targetLevel = (m === 'speaking') ? 0.6 : (m === 'listening') ? 0.25 : 0;
+  }
+  render(t) {
+    const { ctx, w, h, particles } = this;
+    if (!w) return;
+    ctx.clearRect(0, 0, w, h);
+    const cx = w / 2, cy = h / 2;
+    const baseR = Math.min(w, h) * 0.26;
+    if (this.mode === 'speaking') {
+      const env = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(t * 0.012));
+      const flicker = 0.7 + 0.3 * Math.sin(t * 0.04 + Math.sin(t * 0.018) * 4);
+      this.audioLevel = env * flicker;
+    } else if (this.mode === 'listening') {
+      this.audioLevel = 0.15 + 0.1 * Math.sin(t * 0.008);
+    } else {
+      this.audioLevel *= 0.95;
+    }
+    const breath = 1 + Math.sin(t * 0.0008) * 0.035 + this.audioLevel * 0.18;
+    const pulse = baseR * breath;
+    const ry = t * 0.00025;
+    const rx = Math.sin(t * 0.00018) * 0.35;
+    const cosY = Math.cos(ry), sinY = Math.sin(ry);
+    const cosX = Math.cos(rx), sinX = Math.sin(rx);
+
+    const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, pulse * 1.5);
+    halo.addColorStop(0,   `rgba(0, 220, 255, ${0.28 + this.audioLevel * 0.25})`);
+    halo.addColorStop(0.35,`rgba(80, 130, 220, ${0.12 + this.audioLevel * 0.12})`);
+    halo.addColorStop(1,   'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = halo;
+    ctx.fillRect(0, 0, w, h);
+
+    for (const p of this.outer) {
+      p.a += p.speed;
+      const x = Math.cos(p.a) * Math.cos(p.b) * pulse * p.r;
+      const y = Math.sin(p.b) * pulse * p.r;
+      const z = Math.sin(p.a) * Math.cos(p.b);
+      const depth = (z + 1) / 2;
+      ctx.fillStyle = `rgba(0, ${180 + depth * 50 | 0}, ${230 + depth * 25 | 0}, ${0.15 + depth * 0.25})`;
+      ctx.beginPath();
+      ctx.arc(cx + x, cy + y, p.s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    const out = [];
+    for (const p of particles) {
+      let x = p.ox * cosY + p.oz * sinY;
+      let z = -p.ox * sinY + p.oz * cosY;
+      let y = p.oy;
+      const y2 = y * cosX - z * sinX;
+      const z2 = y * sinX + z * cosX;
+      const wobble = 1 + Math.sin(t * 0.001 + p.seed) * 0.018 + this.audioLevel * 0.08 * Math.sin(p.seed + t * 0.004);
+      const r = pulse * wobble;
+      out.push({ sx: cx + x * r, sy: cy + y2 * r, sz: z2, halo: p.halo });
+    }
+    out.sort((a, b) => a.sz - b.sz);
+    for (const pt of out) {
+      const depth = (pt.sz + 1) / 2;
+      const size = 0.5 + depth * 1.7 * pt.halo;
+      const violetMix = 1 - depth;
+      const rC = (0   + violetMix * 80) | 0;
+      const gC = (180 + depth * 75) | 0;
+      const bC = (220 + depth * 35) | 0;
+      const aC = 0.18 + depth * 0.7;
+      ctx.fillStyle = `rgba(${rC}, ${gC}, ${bC}, ${aC})`;
+      ctx.beginPath();
+      ctx.arc(pt.sx, pt.sy, size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (this.mode === 'speaking') {
+      for (let i = 0; i < 3; i++) {
+        const phase = (t * 0.0008 + i / 3) % 1;
+        const rr = pulse * (1 + phase * 1.6);
+        const aa = (1 - phase) * 0.35;
+        ctx.strokeStyle = `rgba(0, 220, 255, ${aa})`;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+  }
+  loop = () => {
+    const t = performance.now() - this.t0;
+    this.render(t);
+    this.frame = requestAnimationFrame(this.loop);
+  }
+  destroy() {
+    cancelAnimationFrame(this.frame);
+    window.removeEventListener('resize', this._onResize);
+    this.root.innerHTML = '';
+  }
+}
+
+/* ───── Rings + orb ───── */
+class RingsDashboard {
+  constructor(root) {
+    this.root = root;
+    this.root.innerHTML = `
+      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+        <svg viewBox="-200 -200 400 400" style="width:min(72vh,72vw);height:min(72vh,72vw);overflow:visible;">
+          <defs>
+            <radialGradient id="coreGlow2" cx="50%" cy="50%" r="50%">
+              <stop offset="0%"   stop-color="rgba(0, 220, 255, 0.85)"/>
+              <stop offset="40%"  stop-color="rgba(0, 180, 220, 0.35)"/>
+              <stop offset="100%" stop-color="rgba(0, 220, 255, 0)"/>
+            </radialGradient>
+            <linearGradient id="ringGrad2" x1="0" x2="1">
+              <stop offset="0%"   stop-color="rgba(0, 220, 255, 0.95)"/>
+              <stop offset="50%"  stop-color="rgba(140, 110, 255, 0.55)"/>
+              <stop offset="100%" stop-color="rgba(0, 220, 255, 0)"/>
+            </linearGradient>
+          </defs>
+          <g class="ring-outer">
+            <circle r="180" fill="none" stroke="rgba(0,220,255,0.08)" stroke-width="0.6"/>
+            <circle r="180" fill="none" stroke="url(#ringGrad2)" stroke-width="1.2" stroke-dasharray="14 6"/>
+          </g>
+          <g class="ring-mid">
+            <circle r="140" fill="none" stroke="rgba(140,110,255,0.18)" stroke-width="0.8"/>
+            <circle r="140" fill="none" stroke="rgba(0,220,255,0.55)" stroke-width="1" stroke-dasharray="60 200"/>
+            <circle r="140" fill="none" stroke="rgba(0,220,255,0.4)" stroke-width="0.8" stroke-dasharray="2 12"/>
+          </g>
+          <g class="ring-inner">
+            <circle r="100" fill="none" stroke="rgba(0,220,255,0.45)" stroke-width="1.4" stroke-dasharray="30 8 6 8"/>
+          </g>
+          <g class="ring-ticks">
+            ${Array.from({length:60}, (_, i) => {
+              const a = (i / 60) * Math.PI * 2;
+              const r1 = 78, r2 = 84;
+              const x1 = Math.cos(a) * r1, y1 = Math.sin(a) * r1;
+              const long = i % 5 === 0;
+              return `<line x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${(Math.cos(a)*(long?86:84)).toFixed(2)}" y2="${(Math.sin(a)*(long?86:84)).toFixed(2)}"
+                stroke="rgba(0,220,255,${long?0.7:0.3})" stroke-width="${long?1.4:0.6}"/>`;
+            }).join('')}
+          </g>
+          <circle r="70" fill="url(#coreGlow2)">
+            <animate attributeName="r" values="65;78;65" dur="3s" repeatCount="indefinite"/>
+            <animate attributeName="opacity" values="0.7;1;0.7" dur="3s" repeatCount="indefinite"/>
+          </circle>
+          <circle r="40" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="1">
+            <animate attributeName="r" values="38;48;38" dur="2.2s" repeatCount="indefinite"/>
+          </circle>
+          <g class="wave" opacity="0">
+            <polyline class="wave-line" points="" fill="none" stroke="rgba(0,220,255,0.9)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </g>
+        </svg>
+      </div>
+      <div style="position:absolute;left:50%;bottom:8%;transform:translateX(-50%);text-align:center;pointer-events:none;">
+        <div class="cap dim" style="font-size:10px;letter-spacing:0.3em;margin-bottom:6px;">JARVIS · IDLE</div>
+        <div style="font-size:18px;font-weight:300;letter-spacing:0.04em;">All systems nominal.</div>
+      </div>`;
+    this.outer = root.querySelector('.ring-outer');
+    this.mid = root.querySelector('.ring-mid');
+    this.inner = root.querySelector('.ring-inner');
+    this.wave = root.querySelector('.wave');
+    this.waveLine = root.querySelector('.wave-line');
+    this.t0 = performance.now();
+    this.mode = 'idle';
+    this.loop();
+  }
+  setMode(m) {
+    this.mode = m;
+    this.wave.style.opacity = (m === 'speaking') ? '1' : '0';
+  }
+  loop = () => {
+    const t = (performance.now() - this.t0) / 1000;
+    this.outer.setAttribute('transform', `rotate(${(t * 6).toFixed(2)})`);
+    this.mid.setAttribute('transform', `rotate(${(-t * 14).toFixed(2)})`);
+    this.inner.setAttribute('transform', `rotate(${(t * 24).toFixed(2)})`);
+    if (this.mode === 'speaking') {
+      const pts = [];
+      for (let i = 0; i <= 60; i++) {
+        const x = -80 + i * (160 / 60);
+        const y = Math.sin(i * 0.6 + t * 9) * (8 + 6 * Math.sin(t * 4 + i)) +
+                  Math.sin(i * 1.5 - t * 4) * 5;
+        pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+      }
+      this.waveLine.setAttribute('points', pts.join(' '));
+    }
+    this.frame = requestAnimationFrame(this.loop);
+  }
+  destroy() {
+    cancelAnimationFrame(this.frame);
+    this.root.innerHTML = '';
+  }
+}
+
+/* ───── Conversation hybrid ───── */
+class ConversationDashboard {
+  constructor(root) {
+    this.root = root;
+    this.root.innerHTML = `
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;padding:5% 8% 8%;">
+        <div class="conv-core" style="width:min(38vh,38vw);height:min(38vh,38vw);position:relative;flex-shrink:0;"></div>
+        <div class="conv-last" style="margin-top:24px;max-width:780px;text-align:center;">
+          <div class="cap dim" style="font-size:10px;letter-spacing:0.3em;margin-bottom:8px;">Jarvis</div>
+          <div style="font-size:24px;font-weight:300;line-height:1.45;letter-spacing:0.01em;color:var(--text);">
+            The iPhone case print is at 42 percent, sir. About 1 hour 12 minutes remaining.
+            Living room lights have been dimmed for movie mode.
+          </div>
+        </div>
+        <div class="conv-transcript" style="flex:1;width:100%;max-width:780px;margin-top:18px;overflow:hidden;mask-image:linear-gradient(180deg,black 30%,transparent);-webkit-mask-image:linear-gradient(180deg,black 30%,transparent);">
+          <div class="transcript-row dim" style="font-size:13px;padding:6px 0;">
+            <span style="color:var(--violet);">You · </span>start movie mode and check on the print
+          </div>
+          <div class="transcript-row dim" style="font-size:13px;padding:6px 0;opacity:0.7;">
+            <span style="color:var(--cyan);">Jarvis · </span>understood — dimming living room
+          </div>
+          <div class="transcript-row dim" style="font-size:12px;padding:6px 0;opacity:0.5;">
+            <span style="color:var(--violet);">You · </span>what's the weather looking like tomorrow
+          </div>
+          <div class="transcript-row dim" style="font-size:12px;padding:6px 0;opacity:0.3;">
+            <span style="color:var(--cyan);">Jarvis · </span>72 and partly cloudy, a touch of rain in the evening
+          </div>
+        </div>
+        <div class="conv-chips" style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:12px;">
+          <button class="chip">Pause print</button>
+          <button class="chip">Bedtime scene</button>
+          <button class="chip">What's on the calendar?</button>
+          <button class="chip">Check security</button>
+        </div>
+      </div>`;
+    this.core = root.querySelector('.conv-core');
+    this.sphere = new ParticleSphereDashboard(this.core);
+    this.sphere.hud.style.display = 'none';
+    this.sphere.greet.style.display = 'none';
+  }
+  setMode(m) { this.sphere.setMode(m); }
+  destroy() { this.sphere.destroy(); this.root.innerHTML = ''; }
+}
+
+const DASHBOARDS = {
+  particles: { label: 'Particle Sphere',  ctor: ParticleSphereDashboard },
+  rings:     { label: 'Rings + Orb',      ctor: RingsDashboard },
+  convo:     { label: 'Conversation',     ctor: ConversationDashboard },
+};
+
+/* ═══════════════════════════ Nav variant mounters ═══════════════════════════ */
+/* Each returns a destroy() function for clean swap-out. */
+
+const NAV_MOUNTERS = {
+  A: (stage) => {
+    const dock = document.createElement('nav');
+    dock.className = 'arc-dock';
+    dock.innerHTML = NAV_ITEMS.map((n, i) => `
+      <button class="arc-item ${i === 0 ? 'active' : ''}" data-id="${n.id}">
+        ${icon(n.icon, 22)}
+        <span class="arc-label">${n.label}</span>
+      </button>`).join('');
+    dock.addEventListener('click', e => {
+      const btn = e.target.closest('.arc-item');
+      if (!btn) return;
+      dock.querySelectorAll('.arc-item').forEach(x => x.classList.remove('active'));
+      btn.classList.add('active');
+    });
+    document.body.appendChild(dock);
+    return () => dock.remove();
+  },
+
+  B: (stage) => {
+    const hint = document.createElement('div');
+    hint.className = 'summon-hint';
+    hint.innerHTML = `
+      <span class="hint-text">Long-press anywhere</span>
+      <div class="summon-orb" id="summon-orb">${icon('dashboard', 22)}</div>`;
+    document.body.appendChild(hint);
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'radial-backdrop';
+    document.body.appendChild(backdrop);
+
+    const wheel = document.createElement('div');
+    wheel.className = 'radial-wheel';
+    const center = document.createElement('div');
+    center.className = 'radial-center';
+    center.textContent = 'Nav';
+    wheel.appendChild(center);
+
+    const radius = 130;
+    NAV_ITEMS.forEach((n, i) => {
+      const a = (i / NAV_ITEMS.length) * Math.PI * 2 - Math.PI / 2;
+      const x = Math.cos(a) * radius + 180;
+      const y = Math.sin(a) * radius + 180;
+      const el = document.createElement('button');
+      el.className = 'radial-item' + (i === 0 ? ' active' : '');
+      el.style.left = x + 'px';
+      el.style.top = y + 'px';
+      el.innerHTML = `${icon(n.icon, 22)}<span class="lbl">${n.label.split(' ')[0]}</span>`;
+      el.onclick = (e) => {
+        e.stopPropagation();
+        wheel.querySelectorAll('.radial-item').forEach(x => x.classList.remove('active'));
+        el.classList.add('active');
+        setTimeout(close, 180);
+      };
+      wheel.appendChild(el);
+    });
+    document.body.appendChild(wheel);
+
+    function open(x, y) {
+      wheel.style.left = x + 'px';
+      wheel.style.top = y + 'px';
+      wheel.classList.add('open');
+      backdrop.classList.add('open');
+    }
+    function close() {
+      wheel.classList.remove('open');
+      backdrop.classList.remove('open');
+    }
+
+    document.getElementById('summon-orb').onclick = (e) => {
+      e.stopPropagation();
+      open(window.innerWidth / 2, window.innerHeight / 2);
+    };
+    backdrop.onclick = close;
+
+    let pressTimer = null, pressedAt = null;
+    const onDown = (e) => {
+      if (e.target.closest('.summon-orb, .radial-wheel, .seg, .topbar, .toolbar, .hud-card, .chip')) return;
+      pressedAt = { x: e.clientX, y: e.clientY };
+      pressTimer = setTimeout(() => open(pressedAt.x, pressedAt.y), 420);
+    };
+    const onUp = () => clearTimeout(pressTimer);
+    stage.addEventListener('mousedown', onDown);
+    stage.addEventListener('mouseup', onUp);
+    stage.addEventListener('mouseleave', onUp);
+
+    return () => {
+      hint.remove(); backdrop.remove(); wheel.remove();
+      stage.removeEventListener('mousedown', onDown);
+      stage.removeEventListener('mouseup', onUp);
+      stage.removeEventListener('mouseleave', onUp);
+      clearTimeout(pressTimer);
+    };
+  },
+
+  C: (stage) => {
+    const strip = document.createElement('div');
+    strip.className = 'edge-strip';
+    document.body.appendChild(strip);
+
+    const rail = document.createElement('nav');
+    rail.className = 'rail';
+    rail.innerHTML = NAV_ITEMS.map((n, i) => `
+      <button class="rail-item ${i === 0 ? 'active' : ''}" data-id="${n.id}">
+        <span class="ic">${icon(n.icon, 18)}</span>
+        <span>${n.label}</span>
+      </button>`).join('');
+    rail.addEventListener('click', e => {
+      const b = e.target.closest('.rail-item');
+      if (!b) return;
+      rail.querySelectorAll('.rail-item').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+    });
+    document.body.appendChild(rail);
+
+    let closeTimer = null;
+    const open = () => { clearTimeout(closeTimer); rail.classList.add('open'); };
+    const close = () => rail.classList.remove('open');
+    strip.addEventListener('mouseenter', open);
+    strip.addEventListener('click', open);
+    rail.addEventListener('mouseleave', () => { closeTimer = setTimeout(close, 280); });
+    rail.addEventListener('mouseenter', () => clearTimeout(closeTimer));
+    const onMove = (e) => { if (e.clientX < 28 && e.clientY > 130) open(); };
+    document.body.addEventListener('mousemove', onMove);
+
+    return () => {
+      strip.remove(); rail.remove();
+      document.body.removeEventListener('mousemove', onMove);
+      clearTimeout(closeTimer);
+    };
+  },
+
+  E: (stage) => {
+    /* Orbital Summon — the chosen hybrid.
+       Long-press anywhere on stage (or tap the corner orb) to summon an orbital
+       ring of nav items, centered on screen. Tap an item → pulse + auto-close. */
+    const hint = document.createElement('div');
+    hint.className = 'summon-hint';
+    hint.innerHTML = `
+      <span class="hint-text">Long-press anywhere</span>
+      <div class="summon-orb" id="summon-orb-e">${icon('dashboard', 22)}</div>`;
+    document.body.appendChild(hint);
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'radial-backdrop';
+    document.body.appendChild(backdrop);
+
+    const host = document.createElement('div');
+    host.className = 'orb-summon-host';
+    host.innerHTML = `<div class="summon-ring"></div>`;
+    document.body.appendChild(host);
+
+    const nodes = NAV_ITEMS.map((n, i) => {
+      const el = document.createElement('button');
+      el.className = 'orbit-item' + (i === 0 ? ' active' : '');
+      el.dataset.id = n.id;
+      el.innerHTML = `${icon(n.icon, 22)}<span class="lbl">${n.label}</span>`;
+      el.onclick = (e) => {
+        e.stopPropagation();
+        host.querySelectorAll('.orbit-item').forEach(x => x.classList.remove('active'));
+        el.classList.add('active', 'pulsing');
+        setTimeout(() => el.classList.remove('pulsing'), 260);
+        setTimeout(close, 320);
+      };
+      host.appendChild(el);
+      return { el, baseAngle: (i / NAV_ITEMS.length) * Math.PI * 2 - Math.PI / 2 };
+    });
+
+    let openState = false;
+    function placeNodes() {
+      const w = window.innerWidth, h = window.innerHeight;
+      const radius = Math.min(w, h) * 0.22;
+      host.style.setProperty('--orbit-d', (radius * 2) + 'px');
+      for (const n of nodes) {
+        const x = Math.cos(n.baseAngle) * radius;
+        const y = Math.sin(n.baseAngle) * radius;
+        n.el.style.setProperty('--tx', x + 'px');
+        n.el.style.setProperty('--ty', y + 'px');
+      }
+    }
+    function collapseNodes() {
+      for (const n of nodes) {
+        n.el.style.setProperty('--tx', '0px');
+        n.el.style.setProperty('--ty', '0px');
+      }
+      host.style.setProperty('--orbit-d', '0px');
+    }
+    collapseNodes();
+
+    function open() {
+      if (openState) return;
+      openState = true;
+      host.classList.add('open');
+      backdrop.classList.add('open');
+      host.style.pointerEvents = 'auto';
+      requestAnimationFrame(() => requestAnimationFrame(placeNodes));
+    }
+    function close() {
+      if (!openState) return;
+      openState = false;
+      host.classList.remove('open');
+      backdrop.classList.remove('open');
+      host.style.pointerEvents = 'none';
+      collapseNodes();
+    }
+
+    document.getElementById('summon-orb-e').onclick = (e) => { e.stopPropagation(); open(); };
+    backdrop.onclick = close;
+
+    let pressTimer = null;
+    const onDown = (e) => {
+      if (openState) return;
+      if (e.target.closest('.summon-orb, .orb-summon-host, .seg, .topbar, .toolbar, .hud-card, .chip')) return;
+      pressTimer = setTimeout(open, 380);
+    };
+    const onUp = () => clearTimeout(pressTimer);
+    stage.addEventListener('mousedown', onDown);
+    stage.addEventListener('mouseup', onUp);
+    stage.addEventListener('mouseleave', onUp);
+
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    window.addEventListener('keydown', onKey);
+    const onResize = () => { if (openState) placeNodes(); };
+    window.addEventListener('resize', onResize);
+
+    return () => {
+      hint.remove(); backdrop.remove(); host.remove();
+      stage.removeEventListener('mousedown', onDown);
+      stage.removeEventListener('mouseup', onUp);
+      stage.removeEventListener('mouseleave', onUp);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', onResize);
+      clearTimeout(pressTimer);
+    };
+  },
+
+  D: (stage) => {
+    const host = document.createElement('div');
+    host.className = 'orbit-host';
+    host.innerHTML = `<div class="orbit-track"></div>`;
+    stage.appendChild(host);
+
+    const nodes = NAV_ITEMS.map((n, i) => {
+      const el = document.createElement('button');
+      el.className = 'orbit-item' + (i === 0 ? ' active' : '');
+      el.dataset.id = n.id;
+      el.innerHTML = `${icon(n.icon, 22)}<span class="lbl">${n.label}</span>`;
+      el.onclick = () => {
+        host.querySelectorAll('.orbit-item').forEach(x => x.classList.remove('active'));
+        el.classList.add('active');
+      };
+      host.appendChild(el);
+      return { el, baseAngle: (i / NAV_ITEMS.length) * Math.PI * 2 - Math.PI / 2 };
+    });
+
+    let rafId = 0;
+    let alive = true;
+    function layout() {
+      if (!alive) return;
+      const r = host.getBoundingClientRect();
+      const radius = Math.min(r.width, r.height) * 0.41;
+      const t = performance.now() * 0.00006;
+      for (const n of nodes) {
+        const a = n.baseAngle + t;
+        const wobble = Math.sin(t * 9 + n.baseAngle) * 6;
+        const x = Math.cos(a) * (radius + wobble);
+        const y = Math.sin(a) * (radius + wobble);
+        n.el.style.setProperty('--tx', x + 'px');
+        n.el.style.setProperty('--ty', y + 'px');
+      }
+      rafId = requestAnimationFrame(layout);
+    }
+    rafId = requestAnimationFrame(layout);
+
+    return () => {
+      alive = false;
+      cancelAnimationFrame(rafId);
+      host.remove();
+    };
+  },
+};
+
+const NAV_CAPTIONS = {
+  E: 'Variant E · Orbital Summon · long-press anywhere (or tap the corner orb) to call the ring',
+  A: 'Variant A · Floating Arc Dock',
+  B: 'Variant B · Radial Summon · click the orb (or long-press anywhere) to invoke',
+  C: 'Variant C · Edge-Swipe Rail · hover the left edge to expand',
+  D: 'Variant D · Orbital HUD · nav nodes drift around the dashboard core',
+};
+
+/* ═══════════════════════════ Orchestrator ═══════════════════════════ */
+
+const stage = document.getElementById('stage');
+const caption = document.getElementById('caption');
+const dashRoot = document.createElement('div');
+dashRoot.style.cssText = 'position:absolute;inset:0;';
+stage.appendChild(dashRoot);
+
+let curDash = null;
+let curNavDestroy = null;
+let mode = 'idle';
+
+function setDash(key) {
+  if (curDash) curDash.destroy();
+  curDash = new DASHBOARDS[key].ctor(dashRoot);
+  curDash.setMode(mode);
+}
+function setMode(m) {
+  mode = m;
+  if (curDash) curDash.setMode(m);
+}
+function setNav(key) {
+  if (curNavDestroy) curNavDestroy();
+  curNavDestroy = NAV_MOUNTERS[key](stage);
+  caption.textContent = NAV_CAPTIONS[key];
+}
+
+setDash('particles');
+setNav('E');
+
+document.querySelectorAll('.seg').forEach(seg => {
+  seg.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-val]');
+    if (!b) return;
+    seg.querySelectorAll('button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    const k = seg.dataset.key;
+    const v = b.dataset.val;
+    if (k === 'nav')  setNav(v);
+    if (k === 'dash') setDash(v);
+    if (k === 'mode') setMode(v);
+  });
+});
+
+const clock = document.getElementById('clock');
+const tickClock = () => { clock.textContent = new Date().toTimeString().slice(0, 8); };
+tickClock();
+setInterval(tickClock, 1000);
+</script>
+</body>
+</html>
