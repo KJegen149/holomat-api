@@ -437,6 +437,63 @@
       background: rgba(0, 220, 255, 0.14);
       box-shadow: 0 0 36px rgba(0, 220, 255, 0.55), inset 0 0 18px rgba(0, 220, 255, 0.22);
     }
+
+    /* ────────── Variant E — Orbital Summon (the chosen hybrid) ────────── */
+    /* Particle dashboard stays the hero. A discoverability orb pulses in
+       the corner; long-press anywhere (or tap the orb) summons an orbital
+       ring of nav items, centered on the screen, on top of a dimmed backdrop.
+       Tap an item → it pulses, ring fades out. */
+    .orb-summon-host {
+      position: fixed; left: 50%; top: 50%;
+      width: 0; height: 0;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 50;
+    }
+    .orb-summon-host .orbit-item {
+      --tx: 0px; --ty: 0px; --scale: 0.6;
+      width: 78px; height: 78px;
+      margin: -39px 0 0 -39px;
+      flex-direction: column; gap: 4px;
+      opacity: 0;
+      transition:
+        --tx 360ms cubic-bezier(.2,.8,.2,1),
+        --ty 360ms cubic-bezier(.2,.8,.2,1),
+        --scale 280ms cubic-bezier(.2,.7,.2,1),
+        opacity 220ms ease,
+        color 200ms, border-color 200ms, box-shadow 220ms, background 200ms;
+    }
+    .orb-summon-host.open .orbit-item {
+      --scale: 1;
+      opacity: 1;
+    }
+    .orb-summon-host .orbit-item .lbl {
+      position: absolute; top: 100%; left: 50%;
+      transform: translateX(-50%) translateY(8px);
+      font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--muted); white-space: nowrap;
+      opacity: 0; transition: opacity 200ms ease;
+    }
+    .orb-summon-host.open .orbit-item .lbl { opacity: 0.85; }
+    .orb-summon-host .orbit-item:hover .lbl { color: var(--cyan); opacity: 1; }
+    .orb-summon-host .orbit-item:hover { --scale: 1.12; }
+    .orb-summon-host .orbit-item.pulsing {
+      --scale: 1.18;
+      box-shadow: 0 0 48px rgba(0, 220, 255, 0.7), inset 0 0 22px rgba(0, 220, 255, 0.3);
+    }
+    /* Faint guide ring drawn at the orbit radius once open */
+    .orb-summon-host .summon-ring {
+      position: absolute; left: 50%; top: 50%;
+      width: 0; height: 0; border-radius: 50%;
+      border: 1px dashed rgba(0, 220, 255, 0);
+      transition: all 360ms cubic-bezier(.2,.8,.2,1);
+      transform: translate(-50%, -50%);
+    }
+    .orb-summon-host.open .summon-ring {
+      border-color: rgba(0, 220, 255, 0.15);
+      width: var(--orbit-d, 360px); height: var(--orbit-d, 360px);
+      box-shadow: inset 0 0 40px rgba(0, 220, 255, 0.05);
+    }
   </style>
 </head>
 
@@ -456,7 +513,8 @@
   <div class="toolbar">
     <div class="seg" data-key="nav">
       <span class="seg-label">Nav</span>
-      <button data-val="A" class="active">A · Arc Dock</button>
+      <button data-val="E" class="active">E · Orbital Summon ★</button>
+      <button data-val="A">A · Arc Dock</button>
       <button data-val="B">B · Radial</button>
       <button data-val="C">C · Edge Rail</button>
       <button data-val="D">D · Orbital</button>
@@ -957,6 +1015,110 @@ const NAV_MOUNTERS = {
     };
   },
 
+  E: (stage) => {
+    /* Orbital Summon — the chosen hybrid.
+       Long-press anywhere on stage (or tap the corner orb) to summon an orbital
+       ring of nav items, centered on screen. Tap an item → pulse + auto-close. */
+    const hint = document.createElement('div');
+    hint.className = 'summon-hint';
+    hint.innerHTML = `
+      <span class="hint-text">Long-press anywhere</span>
+      <div class="summon-orb" id="summon-orb-e">${icon('dashboard', 22)}</div>`;
+    document.body.appendChild(hint);
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'radial-backdrop';
+    document.body.appendChild(backdrop);
+
+    const host = document.createElement('div');
+    host.className = 'orb-summon-host';
+    host.innerHTML = `<div class="summon-ring"></div>`;
+    document.body.appendChild(host);
+
+    const nodes = NAV_ITEMS.map((n, i) => {
+      const el = document.createElement('button');
+      el.className = 'orbit-item' + (i === 0 ? ' active' : '');
+      el.dataset.id = n.id;
+      el.innerHTML = `${icon(n.icon, 22)}<span class="lbl">${n.label}</span>`;
+      el.onclick = (e) => {
+        e.stopPropagation();
+        host.querySelectorAll('.orbit-item').forEach(x => x.classList.remove('active'));
+        el.classList.add('active', 'pulsing');
+        setTimeout(() => el.classList.remove('pulsing'), 260);
+        setTimeout(close, 320);
+      };
+      host.appendChild(el);
+      return { el, baseAngle: (i / NAV_ITEMS.length) * Math.PI * 2 - Math.PI / 2 };
+    });
+
+    let openState = false;
+    function placeNodes() {
+      const w = window.innerWidth, h = window.innerHeight;
+      const radius = Math.min(w, h) * 0.22;
+      host.style.setProperty('--orbit-d', (radius * 2) + 'px');
+      for (const n of nodes) {
+        const x = Math.cos(n.baseAngle) * radius;
+        const y = Math.sin(n.baseAngle) * radius;
+        n.el.style.setProperty('--tx', x + 'px');
+        n.el.style.setProperty('--ty', y + 'px');
+      }
+    }
+    function collapseNodes() {
+      for (const n of nodes) {
+        n.el.style.setProperty('--tx', '0px');
+        n.el.style.setProperty('--ty', '0px');
+      }
+      host.style.setProperty('--orbit-d', '0px');
+    }
+    collapseNodes();
+
+    function open() {
+      if (openState) return;
+      openState = true;
+      host.classList.add('open');
+      backdrop.classList.add('open');
+      host.style.pointerEvents = 'auto';
+      requestAnimationFrame(() => requestAnimationFrame(placeNodes));
+    }
+    function close() {
+      if (!openState) return;
+      openState = false;
+      host.classList.remove('open');
+      backdrop.classList.remove('open');
+      host.style.pointerEvents = 'none';
+      collapseNodes();
+    }
+
+    document.getElementById('summon-orb-e').onclick = (e) => { e.stopPropagation(); open(); };
+    backdrop.onclick = close;
+
+    let pressTimer = null;
+    const onDown = (e) => {
+      if (openState) return;
+      if (e.target.closest('.summon-orb, .orb-summon-host, .seg, .topbar, .toolbar, .hud-card, .chip')) return;
+      pressTimer = setTimeout(open, 380);
+    };
+    const onUp = () => clearTimeout(pressTimer);
+    stage.addEventListener('mousedown', onDown);
+    stage.addEventListener('mouseup', onUp);
+    stage.addEventListener('mouseleave', onUp);
+
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    window.addEventListener('keydown', onKey);
+    const onResize = () => { if (openState) placeNodes(); };
+    window.addEventListener('resize', onResize);
+
+    return () => {
+      hint.remove(); backdrop.remove(); host.remove();
+      stage.removeEventListener('mousedown', onDown);
+      stage.removeEventListener('mouseup', onUp);
+      stage.removeEventListener('mouseleave', onUp);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', onResize);
+      clearTimeout(pressTimer);
+    };
+  },
+
   D: (stage) => {
     const host = document.createElement('div');
     host.className = 'orbit-host';
@@ -1004,6 +1166,7 @@ const NAV_MOUNTERS = {
 };
 
 const NAV_CAPTIONS = {
+  E: 'Variant E · Orbital Summon · long-press anywhere (or tap the corner orb) to call the ring',
   A: 'Variant A · Floating Arc Dock',
   B: 'Variant B · Radial Summon · click the orb (or long-press anywhere) to invoke',
   C: 'Variant C · Edge-Swipe Rail · hover the left edge to expand',
@@ -1038,7 +1201,7 @@ function setNav(key) {
 }
 
 setDash('particles');
-setNav('A');
+setNav('E');
 
 document.querySelectorAll('.seg').forEach(seg => {
   seg.addEventListener('click', (e) => {
