@@ -1,6 +1,8 @@
 # Phase 12 — Authentication & Front-Door Security
 
-**Status:** Planned. Not yet implemented.
+**Status:** Shipped on branch `claude/wonderful-sagan-sXeD6` (PR-A: backend,
+gated behind `HOLOMAT_AUTH_ENABLED=false` default. PR-B: UI gate, change-
+password panel, retire `HOLOMAT_ADMIN_KEY`, flip default to `true`).
 **Goal:** Put the Holomat dashboard behind a real login. No anonymous access
 to the API, the WebSocket, the MJPEG stream, or the gallery image URLs from
 the moment the service starts.
@@ -433,4 +435,4 @@ out:
 
 ---
 
-*Phase 12 planned 2026-05-25. Implementation pending operator sign-off.*
+*Phase 12 planned and implemented 2026-05-25.*

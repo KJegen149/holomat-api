@@ -2,7 +2,6 @@
 import asyncio
 import os
 import re
-import secrets
 import socket
 import threading
 from pathlib import Path
@@ -10,15 +9,14 @@ from urllib import request as urllib_req, error as urllib_err
 from urllib.parse import urlparse
 
 from dotenv import dotenv_values
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 ENV_FILE = Path(__file__).parent.parent.parent / ".env"
 
-# Admin gate: when HOLOMAT_ADMIN_KEY is set, every /api/settings request must
-# carry a matching X-Admin-Key header. When unset the gate is open (so an
-# unconfigured install is not locked out) — set the key to require auth.
-_ADMIN_KEY = os.getenv("HOLOMAT_ADMIN_KEY", "")
+# Settings API is gated at the include_router level in main.py by the
+# session-cookie require_auth dep (Phase 12). The pre-Phase-12
+# HOLOMAT_ADMIN_KEY header gate was retired in PR-B.
 
 # Guards .env read-modify-write so concurrent saves cannot interleave
 _ENV_LOCK = threading.Lock()
@@ -27,15 +25,7 @@ _ENV_LOCK = threading.Lock()
 _VALID_KEY = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
-def _require_admin(x_admin_key: str = Header(default="")) -> None:
-    """Router-wide gate for the Settings API."""
-    if not _ADMIN_KEY:
-        return
-    if not secrets.compare_digest(x_admin_key, _ADMIN_KEY):
-        raise HTTPException(status_code=401, detail="Invalid or missing admin key")
-
-
-router = APIRouter(tags=["settings"], dependencies=[Depends(_require_admin)])
+router = APIRouter(tags=["settings"])
 
 SENSITIVE_KEYS = {
     "BAMBU_PASSWORD",
@@ -138,10 +128,11 @@ async def get_settings():
     for key in KNOWN_KEYS:
         val = _resolve(key, raw)
         result[key] = MASK if (key in SENSITIVE_KEYS and val) else val
+    from core.auth import auth_enabled
     return {
         "settings": result,
         "env_file_exists": ENV_FILE.exists(),
-        "auth_enabled": bool(_ADMIN_KEY),
+        "auth_enabled": auth_enabled(),
     }
 
 

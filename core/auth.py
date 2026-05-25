@@ -57,7 +57,9 @@ _TRUTHY = ("1", "true", "yes", "on")
 
 
 def auth_enabled() -> bool:
-    return os.getenv("HOLOMAT_AUTH_ENABLED", "false").strip().lower() in _TRUTHY
+    # Default ON in production (PR-B). Set HOLOMAT_AUTH_ENABLED=false only
+    # for local dev; the kiosk must never run with this off in the field.
+    return os.getenv("HOLOMAT_AUTH_ENABLED", "true").strip().lower() in _TRUTHY
 
 
 def cookie_secure() -> bool:

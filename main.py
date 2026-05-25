@@ -2,6 +2,7 @@
 Holomat API — JARVIS Holomat, a smart fabrication surface.
 Runs on KJLC-AI-01, port 8100.
 """
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -139,9 +140,19 @@ app = FastAPI(
     redoc_url="/api/redoc",
 )
 
+def _allowed_origins() -> list[str]:
+    """Comma-separated CORS allow-list. Same-origin SPA requests don't hit
+       CORS at all, so an empty list is the safest default — the operator
+       only needs to populate this if a cross-origin client (e.g. HA) calls
+       the API directly."""
+    raw = os.getenv("HOLOMAT_ALLOWED_ORIGINS", "").strip()
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins(),
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

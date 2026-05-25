@@ -34,7 +34,8 @@ All performance estimates (compile times, timeout values, memory budgets) should
 - Phase 8: Wyoming voice bridge ✅
 - Phase 9: Settings UI ✅
 - Phase 10: QA pass + 1.0 release ✅
-- Phase 11: see `PHASE_11_ROADMAP.md`
+- Phase 11: Model Sources tab, Meshy + Thingiverse inlets ✅ (see `PHASE_11_ROADMAP.md`)
+- Phase 12: Auth + front-door security ✅ (see `PHASE_12_ROADMAP.md`)
 
 ## AI provider — IMPORTANT
 **All AI inference uses Google Gemini, not OpenAI.**
@@ -153,7 +154,8 @@ Full audit landed across 75 findings (C1–C5, H1–H16, M1–M25, L1–L29). Se
 the finding ID so individual changes are revertable.
 
 Top-level outcomes worth knowing for future edits:
-- **Settings API** now requires `HOLOMAT_ADMIN_KEY` on write endpoints.
+- **Settings API** is gated by the Phase 12 session cookie (the pre-12
+  `HOLOMAT_ADMIN_KEY` header was retired — don't bring it back).
 - **`.env` writes** are atomic (tmpfile + rename) and use `python-dotenv`'s parser.
 - **Secrets** were scrubbed from history-adjacent files (`.env.example`, `test_bambu.py`, the systemd unit).
 - **Gallery SVG** is sanitised before rendering — `dangerouslySetInnerHTML` no longer accepts raw remote SVG.
@@ -166,6 +168,39 @@ Partial / deferred (not blockers):
 - L-tier cosmetic items (stale docstrings, dead imports, hoisting in-function imports).
 - D3 — moving `scripts/test_*.py` to `tools/`.
 - D5 — `addManualObject` UI (backend route exists; product call needed first).
+
+## Phase 12 implementation notes (auth) — traps to preserve
+
+- **`/api/health` is deliberately public.** Login screen pulls it for the
+  status pill. Don't add `require_auth` to `system_router` globally —
+  `/api/status` is gated at the route level instead (`api/routes/system.py`).
+- **WebSocket close code 4401** is the convention for "session lapsed".
+  `useWebSocket` does NOT reconnect on it — it triggers the auth-expired
+  handler so the SPA drops to the login screen.
+- **MJPEG stream + gallery image URLs depend on the session cookie**, not
+  on a JS fetch wrapper. They ride through `<img src=>` and the browser
+  attaches the cookie automatically. Anyone switching auth to header-based
+  tokens has to also rewrite those loaders. Cookies were chosen on purpose.
+- **Don't widen CORS back to `["*"]`.** With `allow_credentials=True` the
+  browser will refuse a wildcard origin; the new default is an empty
+  allow-list (same-origin only) overridable via `HOLOMAT_ALLOWED_ORIGINS`.
+- **`session_version` in `scan_data/auth.json`** is intentional. Bumping it
+  on password change is what kills outstanding cookies. Don't remove it
+  because "the cookie already has an expiry".
+- **The 90-day hard cap is a code constant** (`HARD_CAP_DAYS` in
+  `core/auth.py`), not env-tuneable. Sliding window length is via
+  `HOLOMAT_SESSION_DAYS` (default 30). Both contribute: cookie max-age =
+  sliding length; hard cap = wall-clock age of the original login.
+- **`HOLOMAT_AUTH_BOOTSTRAP_PASSWORD` is read once at startup** and ignored
+  if `auth.json` already exists. Not a password reset — for recovery,
+  delete `scan_data/auth.json` and restart (a fresh random password is
+  logged at WARNING level once).
+- **`HOLOMAT_ADMIN_KEY` is retired.** All `X-Admin-Key` machinery (header
+  dep in `api/routes/settings.py`, `setAdminKey`/`AdminAuthError` in
+  `ui/src/api/client.ts`, `AdminKeyGate` in `ui/src/pages/Settings.tsx`)
+  was deleted. Don't bring it back to "add an extra layer".
+- **`auth_enabled()` defaults to `true`.** Set `HOLOMAT_AUTH_ENABLED=false`
+  only for local dev — the kiosk must never run with this off in the field.
 
 ## Known open issues (legacy, post-Phase-4)
 Most of the original Phase-4 issue list was resolved in Phase 10. What remains:
