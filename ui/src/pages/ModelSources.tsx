@@ -41,7 +41,6 @@ const SOURCE_LABEL: Record<ModelSource, string> = {
   samba:       'SAMBA',
   meshy:       'MESHY',
   thingiverse: 'THINGIVERSE',
-  makerworld:  'MAKERWORLD',
   tinkercad:   'TINKERCAD',
   unknown:     'LOCAL',
 }
@@ -51,7 +50,6 @@ const SOURCE_COLOR: Record<ModelSource, string> = {
   samba:       'text-j-muted  border-j-border',
   meshy:       'text-j-amber  border-j-amber/40',
   thingiverse: 'text-j-green  border-j-green/40',
-  makerworld:  'text-j-amber  border-j-amber/40',
   tinkercad:   'text-j-cyan   border-j-cyan/40',
   unknown:     'text-j-cdim   border-j-border',
 }

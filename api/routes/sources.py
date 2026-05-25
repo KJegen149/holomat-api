@@ -3,8 +3,8 @@ Model Sources routes — Phase 11.
 
 The Model Sources tab is the home for everything that funnels printable STLs
 into `scan_data/stls/`. This module owns the browser/manager view of that
-shared pool; later commits add per-source import endpoints (Meshy retrieval,
-Thingiverse, MakerWorld, …).
+shared pool; per-source import endpoints (Meshy retrieval, Thingiverse, …)
+hang off this same router.
 
 GET    /api/sources/stls               — list STLs in the pool (with sidecar metadata)
 DELETE /api/sources/stls/{filename}    — delete an STL (refuses if referenced by an active job)

@@ -360,7 +360,6 @@ export type ModelSource =
   | 'samba'
   | 'meshy'
   | 'thingiverse'
-  | 'makerworld'
   | 'tinkercad'
   | 'unknown'
 
