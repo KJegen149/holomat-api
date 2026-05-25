@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Keyboard, LogOut } from 'lucide-react'
 import Console from './Console'
 import OnScreenKeyboard from './OnScreenKeyboard'
+import SummonNav from './SummonNav'
 import type { LogEntry } from '../hooks/useWebSocket'
 import type { HealthResponse } from '../api/client'
 
@@ -82,6 +83,8 @@ export default function Layout({ children, logs, health, healthError, username, 
         </main>
         <Console logs={logs} />
       </div>
+
+      <SummonNav />
 
       {showKeyboard && <OnScreenKeyboard onClose={() => setShowKeyboard(false)} />}
 
