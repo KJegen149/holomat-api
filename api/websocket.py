@@ -3,10 +3,16 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from core.auth import COOKIE_NAME, auth_enabled, verify_session
 from core.logger import get_logger
 
 log = get_logger(__name__)
 router = APIRouter()
+
+# WebSocket close code for "your session lapsed, drop to login". The
+# useWebSocket hook routes this back to the login screen instead of
+# silently reconnecting.
+WS_AUTH_FAILED = 4401
 
 
 class ConnectionManager:
@@ -44,6 +50,11 @@ manager = ConnectionManager()
 
 @router.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
+    if auth_enabled():
+        token = ws.cookies.get(COOKIE_NAME)
+        if not token or verify_session(token) is None:
+            await ws.close(code=WS_AUTH_FAILED)
+            return
     await manager.connect(ws)
     try:
         while True:

@@ -1,4 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { triggerAuthExpired } from '../api/client'
+
+// Custom close code from the backend (api/websocket.py) — "your session
+// lapsed, drop back to login". We do NOT reconnect on this code.
+const WS_AUTH_FAILED = 4401
 
 export interface LogEntry {
   id: number
@@ -52,8 +57,13 @@ export function useWebSocket() {
         } catch { /* non-JSON frames ignored */ }
       }
 
-      ws.onclose = () => {
+      ws.onclose = (e) => {
         clearInterval(pingInterval)
+        if (e.code === WS_AUTH_FAILED) {
+          // Server rejected the cookie — drop to login, don't reconnect.
+          triggerAuthExpired()
+          return
+        }
         reconnectTimer = setTimeout(connect, 3000)
       }
 

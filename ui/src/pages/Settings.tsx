@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Settings as SettingsIcon, Save, Loader2, RotateCcw, CheckCircle, Power, Zap, Circle, Lock } from 'lucide-react'
-import { fetchSettings, saveSettings, restartService, testConnections, bambuDryRun, bambuCloudAuth, meshyTest, fetchHealth, setAdminKey, AdminAuthError, type ConnectionTestResult } from '../api/client'
+import { Settings as SettingsIcon, Save, Loader2, RotateCcw, CheckCircle, Power, Zap, Circle, KeyRound } from 'lucide-react'
+import { fetchSettings, saveSettings, restartService, testConnections, bambuDryRun, bambuCloudAuth, meshyTest, fetchHealth, changePassword, type ConnectionTestResult } from '../api/client'
 
 // ── Field & section definitions ─────────────────────────────────────────────
 
@@ -652,43 +652,97 @@ function BambuOtpPanel() {
 
 // ── Main Settings page ───────────────────────────────────────────────────────
 
-function AdminKeyGate({ onUnlock }: { onUnlock: () => void }) {
-  const [key, setKey] = useState('')
+// ── Change-password panel ────────────────────────────────────────────────────
+
+function ChangePasswordPanel() {
+  const [oldPw, setOldPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [confirmPw, setConfirmPw] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setResult(null)
+    if (newPw.length < 8) {
+      setResult({ ok: false, msg: 'New password must be at least 8 characters' })
+      return
+    }
+    if (newPw !== confirmPw) {
+      setResult({ ok: false, msg: 'New password and confirmation do not match' })
+      return
+    }
+    setBusy(true)
+    try {
+      await changePassword(oldPw, newPw)
+      setResult({ ok: true, msg: 'Password changed — other browsers will be signed out on next request.' })
+      setOldPw(''); setNewPw(''); setConfirmPw('')
+    } catch (e) {
+      setResult({ ok: false, msg: e instanceof Error ? e.message : 'Change failed' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const input =
+    'w-full bg-j-bg border border-j-border rounded-sm px-3 py-2 ' +
+    'font-mono text-[11px] text-j-text placeholder-j-cdim ' +
+    'focus:outline-none focus:border-j-cyan transition-colors'
+
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-5 p-10">
-      <Lock size={32} className="text-j-amber" strokeWidth={1.5} />
-      <div className="text-center">
-        <h2 className="text-j-amber font-sans font-bold text-[13px] tracking-[0.2em] uppercase mb-1">
-          Admin Key Required
-        </h2>
-        <p className="text-j-muted font-mono text-[10px] tracking-[0.05em]">
-          The Settings API is protected — enter the HOLOMAT_ADMIN_KEY value.
-        </p>
+    <div className="border border-j-border rounded-sm overflow-hidden">
+      <div className="px-5 py-3 bg-j-surf border-b border-j-border flex items-center gap-2">
+        <KeyRound size={12} className="text-j-cyan" strokeWidth={1.5} />
+        <span className="font-mono text-[11px] text-j-cyan tracking-[0.15em] uppercase">
+          Change Password
+        </span>
       </div>
-      <form
-        onSubmit={(e) => { e.preventDefault(); if (key) { setAdminKey(key); onUnlock() } }}
-        className="flex flex-col gap-3 w-72"
-      >
-        <input
-          type="password"
-          value={key}
-          onChange={(e) => setKey(e.target.value)}
-          placeholder="Admin key"
-          autoFocus
-          className="bg-j-bg border border-j-border rounded-sm px-3 py-2 text-j-text font-mono text-[12px] focus:border-j-cyan outline-none"
-        />
+      <form onSubmit={handleSubmit} className="px-5 py-4 bg-j-bg space-y-3">
+        <div className="space-y-1.5">
+          <label className="block font-mono text-[10px] text-j-muted tracking-[0.1em] uppercase">
+            Current Password
+          </label>
+          <input type="password" value={oldPw} onChange={e => setOldPw(e.target.value)}
+                 autoComplete="current-password" className={input} />
+        </div>
+        <div className="space-y-1.5">
+          <label className="block font-mono text-[10px] text-j-muted tracking-[0.1em] uppercase">
+            New Password
+          </label>
+          <input type="password" value={newPw} onChange={e => setNewPw(e.target.value)}
+                 autoComplete="new-password" className={input} />
+        </div>
+        <div className="space-y-1.5">
+          <label className="block font-mono text-[10px] text-j-muted tracking-[0.1em] uppercase">
+            Confirm New Password
+          </label>
+          <input type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)}
+                 autoComplete="new-password" className={input} />
+        </div>
+        {result && (
+          <p className={`font-mono text-[10px] ${result.ok ? 'text-j-green' : 'text-j-red'}`}>
+            {result.ok ? '✓ ' : '✗ '}{result.msg}
+          </p>
+        )}
         <button
           type="submit"
-          disabled={!key}
-          className="bg-j-cyan/10 border border-j-cyan text-j-cyan font-mono text-[11px] tracking-[0.15em] uppercase py-2 rounded-sm hover:bg-j-cyan/20 disabled:opacity-40 transition-colors"
+          disabled={busy || !oldPw || !newPw || !confirmPw}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-sm border
+            font-mono text-[10px] tracking-[0.1em] uppercase transition-colors
+            ${busy || !oldPw || !newPw || !confirmPw
+              ? 'border-j-border text-j-muted cursor-not-allowed'
+              : 'border-j-cyan text-j-cyan hover:bg-j-cyan/10 cursor-pointer'
+            }`}
         >
-          Unlock
+          {busy ? <Loader2 size={11} className="animate-spin" /> : <KeyRound size={11} />}
+          {busy ? 'Updating…' : 'Update Password'}
         </button>
       </form>
     </div>
   )
 }
 
+// ── Main Settings page ───────────────────────────────────────────────────────
 
 export default function Settings() {
   const [serverValues, setServerValues] = useState<Record<string, string>>({})
@@ -699,14 +753,11 @@ export default function Settings() {
   const [savedSection, setSavedSection] = useState<string | null>(null)
   const [restartRequired, setRestartRequired] = useState(false)
   const [activeSection, setActiveSection]     = useState(SECTIONS[0].id)
-  const [needsKey, setNeedsKey]               = useState(false)
-  const [authEnabled, setAuthEnabled]         = useState(true)
 
   const load = useCallback(async (isInitial = false) => {
     try {
       const res = await fetchSettings()
       setServerValues(res.settings)
-      setAuthEnabled(res.auth_enabled)
       if (isInitial) {
         const initial: Record<string, string> = {}
         for (const [key, val] of Object.entries(res.settings)) {
@@ -716,8 +767,7 @@ export default function Settings() {
       }
       setError(null)
     } catch (e) {
-      if (e instanceof AdminAuthError) setNeedsKey(true)
-      else setError(e instanceof Error ? e.message : 'Failed to load settings')
+      setError(e instanceof Error ? e.message : 'Failed to load settings')
     } finally {
       setLoading(false)
     }
@@ -762,18 +812,13 @@ export default function Settings() {
       })
       setTimeout(() => setSavedSection(null), 3000)
     } catch (e) {
-      if (e instanceof AdminAuthError) setNeedsKey(true)
-      else setError(e instanceof Error ? e.message : 'Save failed')
+      setError(e instanceof Error ? e.message : 'Save failed')
     } finally {
       setSaving(false)
     }
   }, [formValues, load])
 
   const currentSection = SECTIONS.find(s => s.id === activeSection) ?? SECTIONS[0]
-
-  if (needsKey) {
-    return <AdminKeyGate onUnlock={() => { setNeedsKey(false); setLoading(true); load(true) }} />
-  }
 
   if (loading) {
     return (
@@ -831,13 +876,6 @@ export default function Settings() {
 
       {/* Right panel — active section form */}
       <div className="flex-1 overflow-y-auto p-6">
-        {!authEnabled && (
-          <div className="mb-4 border border-j-amber/40 bg-j-amber/5 rounded-sm px-4 py-3">
-            <p className="text-j-amber font-mono text-[11px]">
-              Settings API is unprotected — set HOLOMAT_ADMIN_KEY to require an admin key.
-            </p>
-          </div>
-        )}
         {error && (
           <div className="mb-4 border border-j-red/40 bg-j-red/5 rounded-sm px-4 py-3">
             <p className="text-j-red font-mono text-[11px]">{error}</p>
@@ -845,7 +883,10 @@ export default function Settings() {
         )}
 
         {activeSection === 'administration'
-          ? <AdminPanel />
+          ? <div className="space-y-4">
+              <ChangePasswordPanel />
+              <AdminPanel />
+            </div>
           : <>
               <SectionPanel
                 section={currentSection}

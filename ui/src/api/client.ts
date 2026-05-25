@@ -133,7 +133,35 @@ export interface PatchObjectBody {
   notes?: string
 }
 
+/**
+ * Global handler invoked when any API call returns 401. useAuth subscribes
+ * to this on mount so the SPA drops back to the login screen automatically
+ * when the session lapses or `session_version` is bumped on the server.
+ */
+let _onAuthExpired: (() => void) | null = null
+
+export function setOnAuthExpired(handler: (() => void) | null): void {
+  _onAuthExpired = handler
+}
+
+/** Trigger the auth-expired handler from non-fetch surfaces (e.g. WebSocket 4401). */
+export function triggerAuthExpired(): void {
+  _onAuthExpired?.()
+}
+
+/** Thrown when an API call returns 401 (session expired or never authed). */
+export class AuthExpiredError extends Error {
+  constructor() {
+    super('Authentication required')
+    this.name = 'AuthExpiredError'
+  }
+}
+
 async function _check<T>(r: Response): Promise<T> {
+  if (r.status === 401) {
+    _onAuthExpired?.()
+    throw new AuthExpiredError()
+  }
   if (!r.ok) {
     const body = await r.json().catch(() => ({})) as { detail?: string; error?: string }
     throw new Error(body.detail ?? body.error ?? `HTTP ${r.status}`)
@@ -561,48 +589,20 @@ export interface SettingsResponse {
   auth_enabled: boolean
 }
 
-const ADMIN_KEY_STORAGE = 'holomat_admin_key'
-
-/** Thrown when the Settings API rejects the admin key (HTTP 401). */
-export class AdminAuthError extends Error {
-  constructor() {
-    super('Admin key required')
-    this.name = 'AdminAuthError'
-  }
-}
-
-export function setAdminKey(key: string): void {
-  localStorage.setItem(ADMIN_KEY_STORAGE, key)
-}
-
-function _adminHeaders(): Record<string, string> {
-  const k = localStorage.getItem(ADMIN_KEY_STORAGE)
-  return k ? { 'X-Admin-Key': k } : {}
-}
-
-async function _checkSettings<T>(r: Response): Promise<T> {
-  if (r.status === 401) throw new AdminAuthError()
-  if (!r.ok) {
-    const body = await r.json().catch(() => ({})) as { detail?: string; error?: string }
-    throw new Error(body.detail ?? body.error ?? `HTTP ${r.status}`)
-  }
-  return r.json()
-}
-
 export async function fetchSettings(): Promise<SettingsResponse> {
-  return _checkSettings(await fetch('/api/settings', { headers: _adminHeaders() }))
+  return _check(await fetch('/api/settings'))
 }
 
 export async function saveSettings(settings: Record<string, string>): Promise<{ saved: boolean; restart_required: boolean }> {
-  return _checkSettings(await fetch('/api/settings', {
+  return _check(await fetch('/api/settings', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ..._adminHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ settings }),
   }))
 }
 
 export async function restartService(): Promise<{ restarting: boolean }> {
-  return _checkSettings(await fetch('/api/settings/restart', { method: 'POST', headers: _adminHeaders() }))
+  return _check(await fetch('/api/settings/restart', { method: 'POST' }))
 }
 
 export interface ConnectionTestResult {
@@ -611,25 +611,75 @@ export interface ConnectionTestResult {
 }
 
 export async function testConnections(): Promise<{ results: Record<string, ConnectionTestResult> }> {
-  return _checkSettings(await fetch('/api/settings/test', { headers: _adminHeaders() }))
+  return _check(await fetch('/api/settings/test'))
 }
 
 export async function bambuDryRun(): Promise<{ results: Record<string, ConnectionTestResult> }> {
-  return _checkSettings(await fetch('/api/settings/test/bambu', { headers: _adminHeaders() }))
+  return _check(await fetch('/api/settings/test/bambu'))
 }
 
 export async function meshyTest(): Promise<ConnectionTestResult> {
-  return _checkSettings(await fetch('/api/settings/test/meshy', { headers: _adminHeaders() }))
+  return _check(await fetch('/api/settings/test/meshy'))
 }
 
 export async function thingiverseTest(): Promise<ConnectionTestResult> {
-  return _checkSettings(await fetch('/api/settings/test/thingiverse', { headers: _adminHeaders() }))
+  return _check(await fetch('/api/settings/test/thingiverse'))
 }
 
 export async function bambuCloudAuth(otp: string): Promise<{ ok: boolean; user_id: string; detail: string }> {
-  return _checkSettings(await fetch('/api/settings/bambu-auth', {
+  return _check(await fetch('/api/settings/bambu-auth', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ..._adminHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ otp }),
   }))
+}
+
+// ── Auth API (Phase 12) ──────────────────────────────────────────────────
+
+export interface AuthMe {
+  username: string | null
+  auth_enabled: boolean
+  authenticated: boolean
+}
+
+/** GET /api/auth/me — public; tells the SPA whether to gate or pass through. */
+export async function fetchAuthMe(): Promise<AuthMe> {
+  const r = await fetch('/api/auth/me')
+  if (!r.ok) throw new Error(`HTTP ${r.status}`)
+  return r.json()
+}
+
+/**
+ * POST /api/auth/login — credentials in body, session cookie comes back in headers.
+ * Throws Error with the server's detail message on failure (incl. 401, 429).
+ */
+export async function login(username: string, password: string): Promise<AuthMe> {
+  const r = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({})) as { detail?: string }
+    throw new Error(body.detail ?? `HTTP ${r.status}`)
+  }
+  // /login returns {username, auth_enabled}; mirror /me's shape for the caller.
+  const data = await r.json() as { username: string; auth_enabled: boolean }
+  return { username: data.username, auth_enabled: data.auth_enabled, authenticated: true }
+}
+
+export async function logout(): Promise<void> {
+  await fetch('/api/auth/logout', { method: 'POST' })
+}
+
+export async function changePassword(oldPassword: string, newPassword: string): Promise<void> {
+  const r = await fetch('/api/auth/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ old: oldPassword, new: newPassword }),
+  })
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({})) as { detail?: string }
+    throw new Error(body.detail ?? `HTTP ${r.status}`)
+  }
 }

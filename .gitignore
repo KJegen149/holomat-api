@@ -12,6 +12,9 @@ OrcaSlicer.AppImage
 # Calibration data (contains camera-specific matrices, not portable)
 calibration_data/*.json
 
+# Auth credentials (Phase 12)
+scan_data/auth.json
+
 # SMB share contents
 smb_share/*
 !smb_share/.gitkeep

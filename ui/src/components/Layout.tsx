@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Crosshair, Scan, Printer, Image, Settings, Home, Mic, Keyboard, Boxes } from 'lucide-react'
+import { LayoutDashboard, Crosshair, Scan, Printer, Image, Settings, Home, Mic, Keyboard, Boxes, LogOut } from 'lucide-react'
 import Console from './Console'
 import StatusPill, { type PillState } from './StatusPill'
 import OnScreenKeyboard from './OnScreenKeyboard'
@@ -31,9 +31,11 @@ interface Props {
   logs: LogEntry[]
   health: HealthResponse | null
   healthError: string | null
+  username?: string | null
+  onLogout?: () => Promise<void> | void
 }
 
-export default function Layout({ children, logs, health, healthError }: Props) {
+export default function Layout({ children, logs, health, healthError, username, onLogout }: Props) {
   const [time, setTime] = useState(() => new Date().toTimeString().slice(0, 8))
   const [showKeyboard, setShowKeyboard] = useState(false)
 
@@ -72,6 +74,17 @@ export default function Layout({ children, logs, health, healthError }: Props) {
         >
           <Keyboard size={15} strokeWidth={1.5} />
         </button>
+        {onLogout && (
+          <button
+            type="button"
+            title={username ? `Sign out (${username})` : 'Sign out'}
+            onClick={() => { void onLogout() }}
+            className="p-1.5 rounded-sm border border-j-border text-j-muted
+                       hover:text-j-red hover:border-j-red transition-colors"
+          >
+            <LogOut size={15} strokeWidth={1.5} />
+          </button>
+        )}
         <div className="text-j-text font-mono text-base font-semibold tracking-[0.1em]">{time}</div>
       </header>
 
@@ -118,6 +131,7 @@ export default function Layout({ children, logs, health, healthError }: Props) {
       <footer className="flex items-center gap-4 px-6 py-2 border-t border-j-border bg-j-surf flex-shrink-0
                          font-mono text-[10px] text-j-muted tracking-[0.1em]">
         <span className="text-j-cdim">{health?.version ? `HOLOMAT v${health.version}` : 'HOLOMAT'}</span>
+        {username && <span className="text-j-cdim">USER {username.toUpperCase()}</span>}
         <div className="flex-1" />
         <span className="text-j-cdim">{`http://${window.location.host}`}</span>
       </footer>
