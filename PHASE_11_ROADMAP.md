@@ -1,7 +1,6 @@
 # Phase 11 — Model Sourcing
 
-**Status:** Planned — not started.
-**Target:** the v1.0.1 → v1.1.0 development cycle (Phase 10 ships v1.0.0).
+**Status:** Shipped (PR #36, #37, plus the post-merge MakerWorld revert).
 **Goal:** pull printable models into Holomat from many sources, all funnelling
 into the shared STL pool (`scan_data/stls/`), so the existing slice → print
 pipeline can take any of them to the Bambu P1S.
@@ -10,80 +9,87 @@ pipeline can take any of them to the Bambu P1S.
 
 ## Concept
 
-Today `scan_data/stls/` is fed by exactly one source — OpenSCAD case
-generation — and the Print tab lists/queues whatever is in that folder.
-Phase 11 turns "model sourcing" into a first-class capability with several
-inlets, presented as its own area in the UI (separate from the Print tab).
+Before Phase 11, `scan_data/stls/` was fed by exactly one source — OpenSCAD
+case generation — and the Print tab listed/queued whatever was in that folder.
+Phase 11 turned "model sourcing" into a first-class capability with several
+inlets, presented as its own area in the UI (the Model Sources tab).
 
 ```
-  OpenSCAD case-gen  ─┐
-  STL Samba share    ─┤
-  Meshy retrieval    ─┼──►  scan_data/stls/  ──►  OrcaSlicer  ──►  Bambu P1S
-  Thingiverse        ─┤
-  MakerWorld         ─┤
-  TinkerCad embed    ─┘
+  OpenSCAD case-gen     ─┐
+  STL Samba share       ─┤
+  Meshy retrieval       ─┼──►  scan_data/stls/  ──►  OrcaSlicer  ──►  Bambu P1S
+  Meshy library browse  ─┤
+  Thingiverse           ─┤
+  TinkerCad (external)  ─┘
 ```
 
 ---
 
-## Work items
+## Outcomes
 
-### 1. STL Samba share — ✅ DONE (shipped early in the v1.0.x line)
-A second guest-writable Samba share, `\\<host>\HolomatSTL`, mapped to
-`scan_data/stls/`. Drop a Fusion / Tinkercad / downloaded `.stl` into it and it
-appears in the Print tab immediately (`/api/print/stls` already globs that
-folder). Shipped ahead of Phase 11 so print testing could proceed.
+### 1. STL Samba share — ✅ shipped
+`\\<host>\HolomatSTL` guest-writable share mapped to `scan_data/stls/`.
+Shipped ahead of Phase 11 so print testing could proceed.
 
-### 2. Model Sources tab
-A dedicated tab — Gallery-style — as the home for everything below. Browses the
-STL pool (`scan_data/stls/`) as a grid: name, size, date, a queue-to-print
-button and a delete button, and it is where the import sources (Meshy /
-Thingiverse / MakerWorld / TinkerCad) surface. The Print tab keeps its quick
-STL dropdown; this tab is the fuller browser / manager.
+### 2. Model Sources tab — ✅ shipped (PR #36)
+Dedicated grid-style tab over `scan_data/stls/`: thumbnail, source badge,
+size, date, queue-to-print, delete, sidebar with the inlet buttons.
 
-### 3. Meshy retrieval
-Finish the Meshy loop. Today Holomat submits an image-to-3D job and polls
-status but never retrieves the result. Add: on task success, read `model_urls`
-from the Meshy response, download the model, and save it into `scan_data/stls/`.
-- Verify which formats Meshy returns (glb / obj / fbx / usdz — and whether STL
-  is directly available) against the Cloudflare worker's Meshy integration.
-- Meshy meshes are organic and often not watertight — a manifold-repair /
-  printability pass is likely needed before slicing.
+### 3. Meshy retrieval — ✅ shipped (PR #37)
+On Meshy task success, `core/meshy_jobs.py` downloads `model_urls.stl` into
+the pool with a sidecar that carries the thumbnail and task id. Wired into
+the Gallery "make 3D" button and surfaced in the Model Sources sidebar's
+"Meshy Retrievals" panel.
 
-### 4. Thingiverse integration
-Browse / search Thingiverse and pull STLs into the pool.
-- Needs a Thingiverse API key; review their API terms of use.
+### 4. Thingiverse — ✅ shipped (PR #37)
+`THINGIVERSE_TOKEN` (app token, sensitive, set via Settings). New search
+modal: query → grid → file picker per Thing → import. Live-tested.
 
-### 5. MakerWorld integration
-The same idea for Bambu's MakerWorld library.
-- Confirm whether MakerWorld exposes a usable public API; if not, this may be
-  limited in scope or need a different approach.
+### 5. MakerWorld — ❌ removed (post-merge revert)
+Initial implementation paste-URL → reverse-engineered Bambu Cloud download
+worked on paper but errored immediately on a live test. Reverted because
+Bambu Handy / Studio already cover the same round-trip natively. Anyone
+wanting MakerWorld models exports the STL from Bambu Studio and drops it
+into HolomatSTL.
 
-### 6. TinkerCad embed
-An in-Holomat iframe / web view of TinkerCad for creating and editing models,
-exporting straight into the STL pool.
-- Risk: TinkerCad (Autodesk) may block iframe embedding via `X-Frame-Options`
-  / CSP `frame-ancestors`. Verify before committing to the iframe approach — a
-  pop-out browser view may be the fallback.
+### 6. TinkerCad — ✅ shipped as pop-out (PR #37)
+Autodesk serves with `X-Frame-Options: SAMEORIGIN`, so the iframe path was
+not viable. Fallback: a sidebar link opens TinkerCad in a new tab; exported
+STLs land in HolomatSTL automatically.
 
-### 7. Meshy embed (stretch)
-A similar embedded web view for Meshy, if its app permits embedding.
+### 7. Meshy library browse — ✅ shipped (PR #37)
+Beyond Gallery-originated jobs, the Meshy Library modal lists every
+image-to-3D task on the connected Meshy account (status chips for
+Completed / In Progress / Failed), with one-click import on SUCCEEDED
+tasks. Requires `MESHY_API_KEY` (direct Meshy API key, separate from
+the Cloudflare worker's `CF_API_KEY`).
 
 ---
 
-## Pipeline note
+## Defaults that changed
 
-Every source lands in `scan_data/stls/`. From there the path is unchanged: the
-Print tab lists the files, OrcaSlicer slices to 3MF, and the LAN print path
-dispatches to the Bambu P1S. OpenSCAD remains the route for parametric / case
-work.
+- **Standard built-in print profile** now defaults to `supports: "tree"`.
+  The Model Sources tab's Queue button uses this profile, so foreign-source
+  STLs get auto-tree supports without the user needing a custom profile.
+  Draft and Fine kept `supports: "none"` since those are explicit
+  speed/precision choices.
 
-## Open questions
+## Known oddities to revisit
 
-- Embeddability of TinkerCad and Meshy (`X-Frame-Options` / CSP).
-- Thingiverse & MakerWorld API access, keys, and terms.
-- Mesh repair — which tool/library makes downloaded meshes printable.
+- **First-print-after-import sometimes stalls past the 5-min RUNNING
+  window**, surfacing as "Printer never entered RUNNING state — most
+  likely silently aborted." Retrying the same file (either from Model
+  Sources Queue or the Print tab) printed fine. Not reproduced
+  deterministically; not believed to be a code-level divergence between
+  the two queue entry points. Worth investigating if it becomes a pattern.
+
+## Operator setup added in Phase 11
+
+- New env vars (both sensitive, set via Settings → External APIs):
+  - `THINGIVERSE_TOKEN` — app token from thingiverse.com/developers/my-apps
+  - `MESHY_API_KEY` — direct Meshy API key (gets the library browse working;
+    the existing Cloudflare worker path still handles generate/upload)
 
 ---
 
-*Captured during Phase 10. Flesh this out when Phase 11 begins.*
+*Phase 11 shipped 2026-05-24.*

@@ -360,7 +360,6 @@ export type ModelSource =
   | 'samba'
   | 'meshy'
   | 'thingiverse'
-  | 'makerworld'
   | 'tinkercad'
   | 'unknown'
 
@@ -372,8 +371,6 @@ export interface ModelSourceStl {
   source: ModelSource
   external_url: string | null
   thumbnail_url: string | null
-  /** File format: 'stl' for native, '3mf' for pre-sliced inputs (MakerWorld). */
-  format: 'stl' | '3mf' | string
 }
 
 export async function fetchSourceStls(): Promise<{ stls: ModelSourceStl[] }> {
@@ -511,32 +508,6 @@ export async function thingiverseImport(body: ThingiverseImportBody): Promise<{ 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  }))
-}
-
-// ── MakerWorld (Phase 11 item 5) ─────────────────────────────────
-
-export interface MakerWorldDesign {
-  design_id: number
-  name: string
-  creator: string
-  thumbnail_url: string | null
-  public_url: string
-}
-
-export async function makerworldResolve(url: string): Promise<MakerWorldDesign> {
-  return _check(await fetch('/api/sources/makerworld/resolve', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url }),
-  }))
-}
-
-export async function makerworldImport(url: string): Promise<{ filename: string; size_bytes: number; format: string }> {
-  return _check(await fetch('/api/sources/makerworld/import', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url }),
   }))
 }
 

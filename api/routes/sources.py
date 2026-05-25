@@ -3,8 +3,8 @@ Model Sources routes — Phase 11.
 
 The Model Sources tab is the home for everything that funnels printable STLs
 into `scan_data/stls/`. This module owns the browser/manager view of that
-shared pool; later commits add per-source import endpoints (Meshy retrieval,
-Thingiverse, MakerWorld, …).
+shared pool; per-source import endpoints (Meshy retrieval, Thingiverse, …)
+hang off this same router.
 
 GET    /api/sources/stls               — list STLs in the pool (with sidecar metadata)
 DELETE /api/sources/stls/{filename}    — delete an STL (refuses if referenced by an active job)
@@ -15,8 +15,6 @@ POST   /api/sources/meshy/import       — import a SUCCEEDED Meshy task's STL i
 GET    /api/sources/thingiverse/search?q=…&page=…  — search Thingiverse
 GET    /api/sources/thingiverse/things/{id}/files  — list a Thing's files
 POST   /api/sources/thingiverse/import — download a Thingiverse file into the pool
-POST   /api/sources/makerworld/resolve — preview a MakerWorld URL
-POST   /api/sources/makerworld/import  — download a MakerWorld 3MF into the pool
 
 Per-file sidecar: an STL named `foo.stl` may have `foo.stl.meta.json` next to
 it with shape `{"source": "<id>", "external_url": "...", ...}`. Import sources
@@ -33,7 +31,6 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from core import makerworld
 from core import meshy as meshy_api
 from core import thingiverse
 from core.logger import get_logger
@@ -50,11 +47,7 @@ STL_DIR = Path("scan_data/stls")
 _ACTIVE_STATES = {"queued", "slicing", "uploading", "printing"}
 
 # Only filenames matching this are accepted — defence against path traversal.
-_SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+\.(stl|3mf)$", re.IGNORECASE)
-
-# Extensions the pool surfaces. STL is native; 3MF is accepted for inlets
-# (notably MakerWorld) that publish 3MFs only.
-_POOL_EXTS = {".stl", ".3mf"}
+_SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+\.stl$", re.IGNORECASE)
 
 
 def _read_sidecar(stl_path: Path) -> dict:
@@ -79,8 +72,6 @@ def _stl_entry(f: Path) -> dict:
         "source": meta.get("source", "unknown"),
         "external_url": meta.get("external_url"),
         "thumbnail_url": meta.get("thumbnail_url"),
-        # Pre-sliced format flag — slicer branches on this; UI shows a badge.
-        "format": f.suffix.lower().lstrip("."),
     }
 
 
@@ -90,7 +81,7 @@ async def list_stls() -> JSONResponse:
     if not STL_DIR.exists():
         return JSONResponse({"stls": []})
     stls = sorted(
-        [_stl_entry(f) for f in STL_DIR.iterdir() if f.is_file() and f.suffix.lower() in _POOL_EXTS],
+        [_stl_entry(f) for f in STL_DIR.iterdir() if f.is_file() and f.suffix.lower() == ".stl"],
         key=lambda x: x["modified_at"],
         reverse=True,
     )
@@ -354,73 +345,4 @@ async def thingiverse_import(body: ThingiverseImportBody) -> JSONResponse:
         "filename": filename,
         "size_bytes": len(data),
         "source": "thingiverse",
-    }, status_code=201)
-
-
-# ── MakerWorld (Phase 11 item 5) ──────────────────────────────────────────────
-
-class MakerWorldURLBody(BaseModel):
-    url: str = Field(..., min_length=10, max_length=500)
-
-
-@router.post("/makerworld/resolve")
-async def makerworld_resolve(body: MakerWorldURLBody) -> JSONResponse:
-    """Preview a MakerWorld design from a pasted URL — name, creator, thumbnail."""
-    design_id = makerworld.parse_design_id(body.url)
-    if design_id is None:
-        raise HTTPException(status_code=400, detail="Not a MakerWorld model URL")
-    try:
-        payload = await makerworld.get_design(design_id)
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"MakerWorld: {e}")
-    except (httpx.HTTPError, RuntimeError) as e:
-        raise HTTPException(status_code=502, detail=str(e))
-
-    normalized = makerworld._normalize_design(payload, design_id)
-    # Don't leak the giant raw instances payload back to the UI
-    normalized.pop("instances", None)
-    return JSONResponse(normalized)
-
-
-@router.post("/makerworld/import")
-async def makerworld_import(body: MakerWorldURLBody) -> JSONResponse:
-    """Download a MakerWorld 3MF into scan_data/stls/ with a sidecar."""
-    design_id = makerworld.parse_design_id(body.url)
-    if design_id is None:
-        raise HTTPException(status_code=400, detail="Not a MakerWorld model URL")
-
-    try:
-        data, suggested, meta = await makerworld.download_3mf(design_id)
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"MakerWorld: {e}")
-    except (httpx.HTTPError, RuntimeError) as e:
-        raise HTTPException(status_code=502, detail=str(e))
-
-    stem = re.sub(r"[^A-Za-z0-9_-]", "_", Path(suggested).stem)[:40] or f"mw_{design_id}"
-    filename = f"{stem}_{uuid.uuid4().hex[:8]}.3mf"
-
-    STL_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = STL_DIR / filename
-    out_path.write_bytes(data)
-
-    sidecar = out_path.with_suffix(out_path.suffix + ".meta.json")
-    sidecar.write_text(json.dumps({
-        "source": "makerworld",
-        "external_url": meta.get("public_url"),
-        "thumbnail_url": meta.get("thumbnail_url"),
-        "design_id": design_id,
-        "thing_name": meta.get("name"),
-        "creator": meta.get("creator"),
-        "source_filename": suggested,
-    }, indent=2))
-
-    log.info(
-        "MakerWorld import: design=%s → %s (%d bytes)",
-        design_id, filename, len(data),
-    )
-    return JSONResponse({
-        "filename": filename,
-        "size_bytes": len(data),
-        "source": "makerworld",
-        "format": "3mf",
     }, status_code=201)
