@@ -9,14 +9,16 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from core.auth import auth_enabled, bootstrap_if_missing, require_auth
 from core.logger import get_logger, set_broadcast, setup_logging
 from core.version import VERSION
 from api.websocket import manager as ws_manager, router as ws_router
+from api.routes.auth import router as auth_router
 from api.routes.system import router as system_router
 from api.routes.camera import router as camera_router
 from api.routes.calibration import router as calibration_router
@@ -42,6 +44,16 @@ async def lifespan(app: FastAPI):
     # Wire logger → WebSocket so all log lines stream to the Console app
     set_broadcast(ws_manager.broadcast)
     log.info("━━━ Holomat v%s starting ━━━", VERSION)
+
+    # Auth bootstrap — no-op when HOLOMAT_AUTH_ENABLED=false
+    try:
+        bootstrap_if_missing()
+        if auth_enabled():
+            log.info("Auth: ENABLED — session cookie required for /api/*")
+        else:
+            log.info("Auth: DISABLED (HOLOMAT_AUTH_ENABLED=false) — all routes anonymous")
+    except Exception as e:
+        log.error("Auth bootstrap failed: %s", e)
 
     # HA MQTT bridge
     try:
@@ -135,18 +147,28 @@ app.add_middleware(
 )
 
 # ── Routers ────────────────────────────────────────────────────────────────
+# Public routers:
+#   - /ws                       — auth-checked inside the handler (cookies)
+#   - /api/auth/*               — login, logout, /me must be reachable pre-auth
+#   - /api/health (in system_router) — login screen polls this for the status pill
+#                                       /api/status inside system_router is gated
+#                                       individually with Depends(require_auth)
+# Everything else is gated at router level by require_auth.
+_AUTH_DEP = [Depends(require_auth)]
+
 app.include_router(ws_router)
+app.include_router(auth_router,        prefix="/api/auth")
 app.include_router(system_router,      prefix="/api")
-app.include_router(camera_router,      prefix="/api/camera")
-app.include_router(calibration_router, prefix="/api/calibration")
-app.include_router(scan_router,        prefix="/api/scan")
-app.include_router(print_router,       prefix="/api/print")
-app.include_router(gallery_router,     prefix="/api/gallery")
-app.include_router(generate_router,    prefix="/api/generate")
-app.include_router(sources_router,     prefix="/api/sources")
-app.include_router(ha_router,          prefix="/api/ha")
-app.include_router(voice_router,       prefix="/api/voice")
-app.include_router(settings_router,    prefix="/api/settings")
+app.include_router(camera_router,      prefix="/api/camera",      dependencies=_AUTH_DEP)
+app.include_router(calibration_router, prefix="/api/calibration", dependencies=_AUTH_DEP)
+app.include_router(scan_router,        prefix="/api/scan",        dependencies=_AUTH_DEP)
+app.include_router(print_router,       prefix="/api/print",       dependencies=_AUTH_DEP)
+app.include_router(gallery_router,     prefix="/api/gallery",     dependencies=_AUTH_DEP)
+app.include_router(generate_router,    prefix="/api/generate",    dependencies=_AUTH_DEP)
+app.include_router(sources_router,     prefix="/api/sources",     dependencies=_AUTH_DEP)
+app.include_router(ha_router,          prefix="/api/ha",          dependencies=_AUTH_DEP)
+app.include_router(voice_router,       prefix="/api/voice",       dependencies=_AUTH_DEP)
+app.include_router(settings_router,    prefix="/api/settings",    dependencies=_AUTH_DEP)
 
 
 # ── Static UI serving ──────────────────────────────────────────────────────

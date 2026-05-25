@@ -2,10 +2,11 @@ import os
 import platform
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from core import calibration as cal
+from core.auth import require_auth
 from core.camera import camera
 from core.printer import is_configured as printer_configured
 from core.slicer import orca_available, openscad_available
@@ -58,9 +59,10 @@ async def health() -> JSONResponse:
     })
 
 
-@router.get("/status")
+@router.get("/status", dependencies=[Depends(require_auth)])
 async def status() -> JSONResponse:
-    """Lightweight liveness probe — calibration gate check."""
+    """Lightweight liveness probe — calibration gate check.
+       Authed: leaks calibration validity, so not a pre-login concern."""
     return JSONResponse({
         "ready": cal.is_valid(),
         "calibration_required": not cal.is_valid(),
