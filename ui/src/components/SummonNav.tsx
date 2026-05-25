@@ -63,12 +63,49 @@ export default function SummonNav() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // Voice trigger — PR-4 dispatches this from the voice bridge
+  // External open trigger — anything in the app can do
+  //   window.dispatchEvent(new CustomEvent('holomat:open-menu'))
   useEffect(() => {
     const onOpen = () => setOpen(true)
     window.addEventListener('holomat:open-menu', onOpen as EventListener)
     return () => window.removeEventListener('holomat:open-menu', onOpen as EventListener)
   }, [])
+
+  // Voice intent — match the user's transcript against simple nav phrases.
+  // "show / open / go to <section>" navigates directly; bare "menu" /
+  // "open menu" / "show me the menu" just summons the ring.
+  useEffect(() => {
+    const onVoice = (e: Event) => {
+      const detail = (e as CustomEvent<{ type?: string; text?: string }>).detail
+      if (!detail || detail.type !== 'voice_transcript' || !detail.text) return
+      const text = detail.text.toLowerCase()
+      const norm = text.replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim()
+
+      // Direct-navigate phrases first ("open scanner", "go to settings", etc.)
+      const directRoutes: Array<{ rx: RegExp; path: string }> = [
+        { rx: /\b(?:open|show|go to|take me to|switch to)\s+(?:the\s+)?dashboard\b/, path: '/' },
+        { rx: /\b(?:open|show|go to|take me to|switch to)\s+(?:the\s+)?scanner\b/, path: '/scanner' },
+        { rx: /\b(?:open|show|go to|take me to|switch to)\s+(?:the\s+)?gallery\b/, path: '/gallery' },
+        { rx: /\b(?:open|show|go to|take me to|switch to)\s+(?:the\s+)?models?\b/, path: '/models' },
+        { rx: /\b(?:open|show|go to|take me to|switch to)\s+(?:the\s+)?print(?:\s+queue)?\b/, path: '/print' },
+        { rx: /\b(?:open|show|go to|take me to|switch to)\s+(?:the\s+)?home(?:\s+assistant)?\b/, path: '/home-assistant' },
+        { rx: /\b(?:open|show|go to|take me to|switch to)\s+(?:the\s+)?settings\b/, path: '/settings' },
+      ]
+      for (const r of directRoutes) {
+        if (r.rx.test(norm)) {
+          if (location.pathname !== r.path) navigate(r.path)
+          return
+        }
+      }
+
+      // Menu-summon phrases
+      if (/\b(?:open|show)?\s*(?:the\s+)?menu\b/.test(norm)) {
+        setOpen(true)
+      }
+    }
+    window.addEventListener('holomat:voice', onVoice)
+    return () => window.removeEventListener('holomat:voice', onVoice)
+  }, [navigate, location.pathname])
 
   // Long-press on <main>
   const pressTimer = useRef<number | null>(null)

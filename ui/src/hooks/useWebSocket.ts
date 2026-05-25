@@ -53,6 +53,11 @@ export function useWebSocket() {
               const next = [...prev, { id: ++_logId, ts, level: d.level ?? 'INFO', message: d.message ?? '' }]
               return next.length > 300 ? next.slice(next.length - 300) : next
             })
+          } else if (typeof d.type === 'string' && d.type.startsWith('voice_')) {
+            // Re-broadcast voice events as DOM CustomEvents so hooks/components
+            // (useVoiceState, SummonNav) can subscribe without holding a
+            // reference to the WebSocket itself.
+            window.dispatchEvent(new CustomEvent('holomat:voice', { detail: d }))
           }
         } catch { /* non-JSON frames ignored */ }
       }

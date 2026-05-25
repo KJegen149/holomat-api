@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Boxes, Crosshair, Printer, Activity, AlertTriangle, type LucideIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import ParticleSphere from '../components/ParticleSphere'
+import ParticleSphere, { type ParticleMode } from '../components/ParticleSphere'
+import { useVoiceState } from '../hooks/useVoiceState'
 import { fetchPrintQueue, type HealthResponse, type PrintJob } from '../api/client'
 
 interface Props {
@@ -54,9 +55,20 @@ function activePrintSummary(jobs: PrintJob[]): { value: string; sub: string } {
   return { value: stateLabel, sub: `${j.name}${rest}` }
 }
 
+/* Voice bridge has four states; the sphere only differentiates three.
+   'thinking' (LLM working) collapses to 'listening' visually — same
+   suspenseful pulse, no ripples yet. */
+function voiceToSphere(v: ReturnType<typeof useVoiceState>): ParticleMode {
+  if (v === 'speaking') return 'speaking'
+  if (v === 'listening' || v === 'thinking') return 'listening'
+  return 'idle'
+}
+
 export default function Dashboard({ health, healthError }: Props) {
   const [queue, setQueue] = useState<{ active: PrintJob[]; history: PrintJob[] } | null>(null)
   const [greeting, setGreeting] = useState('Standing by.')
+  const voice = useVoiceState()
+  const sphereMode = voiceToSphere(voice)
 
   useEffect(() => {
     const tick = () => fetchPrintQueue().then(setQueue).catch(() => { /* keep stale */ })
@@ -98,11 +110,16 @@ export default function Dashboard({ health, healthError }: Props) {
 
   return (
     <div className="relative w-full h-full overflow-hidden">
-      <ParticleSphere mode="idle" />
+      <ParticleSphere mode={sphereMode} />
 
       {/* Greeting & status, anchored low-center over the sphere */}
       <div className="absolute left-1/2 bottom-[18%] -translate-x-1/2 text-center pointer-events-none px-6 max-w-[560px]">
-        <div className="text-[10px] uppercase tracking-[0.3em] text-j-muted mb-2">JARVIS · Ready</div>
+        <div className="text-[10px] uppercase tracking-[0.3em] text-j-muted mb-2">
+          JARVIS · {voice === 'idle' ? 'Ready' :
+                    voice === 'listening' ? 'Listening' :
+                    voice === 'thinking' ? 'Thinking' :
+                    'Speaking'}
+        </div>
         <div className="text-xl font-light leading-relaxed text-j-text">
           {greeting}
         </div>
