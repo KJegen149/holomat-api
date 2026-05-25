@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Phase 13 · Nav B · Radial Summon</title>
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    /* Radial summon menu — appears on long-press / two-finger-tap anywhere.
+       In this mockup, click the corner orb or press anywhere on the canvas
+       to invoke it. */
+    .summon-hint {
+      position: fixed; bottom: 18px; right: 22px;
+      display: flex; align-items: center; gap: 10px;
+      z-index: 18;
+      pointer-events: none;
+    }
+    .summon-orb {
+      width: 56px; height: 56px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, rgba(0,220,255,0.4), rgba(0,220,255,0.05));
+      border: 1px solid var(--border-strong);
+      box-shadow: 0 0 24px rgba(0, 220, 255, 0.4), inset 0 0 12px rgba(0,220,255,0.2);
+      animation: orb-pulse 2.6s ease-in-out infinite;
+      pointer-events: auto; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--cyan);
+    }
+    .summon-hint .hint-text {
+      font-size: 10px; letter-spacing: 0.2em; color: var(--muted);
+      text-transform: uppercase;
+    }
+    @keyframes orb-pulse {
+      0%, 100% { transform: scale(1);   box-shadow: 0 0 24px rgba(0,220,255,0.35), inset 0 0 12px rgba(0,220,255,0.2); }
+      50%      { transform: scale(1.08); box-shadow: 0 0 36px rgba(0,220,255,0.6),  inset 0 0 16px rgba(0,220,255,0.35); }
+    }
+
+    .radial-wheel {
+      position: fixed;
+      width: 360px; height: 360px;
+      transform: translate(-50%, -50%) scale(0.6);
+      opacity: 0; pointer-events: none;
+      transition: opacity 180ms ease, transform 220ms cubic-bezier(.2,.8,.2,1);
+      z-index: 50;
+    }
+    .radial-wheel.open {
+      opacity: 1; pointer-events: auto; transform: translate(-50%, -50%) scale(1);
+    }
+    .radial-center {
+      position: absolute; left: 50%; top: 50%;
+      width: 90px; height: 90px;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, rgba(0,220,255,0.35), rgba(0,220,255,0.04) 75%);
+      border: 1px solid var(--border-strong);
+      box-shadow: inset 0 0 20px rgba(0,220,255,0.2), 0 0 32px rgba(0,220,255,0.3);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--cyan); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
+    }
+    .radial-item {
+      position: absolute; left: 50%; top: 50%;
+      width: 78px; height: 78px;
+      margin-left: -39px; margin-top: -39px;
+      border-radius: 50%;
+      background: var(--surface-hi);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-soft);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 4px; color: var(--text); cursor: pointer;
+      transition: all 200ms cubic-bezier(.2,.7,.2,1);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.5);
+    }
+    .radial-item:hover, .radial-item.active {
+      color: var(--cyan);
+      border-color: var(--border-strong);
+      box-shadow: 0 0 24px rgba(0,220,255,0.35), inset 0 0 14px rgba(0,220,255,0.18);
+      transform: scale(1.08);
+    }
+    .radial-item .lbl {
+      font-size: 8px; letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--muted);
+    }
+    .radial-item:hover .lbl, .radial-item.active .lbl { color: var(--cyan); }
+    .radial-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(5, 6, 9, 0.4);
+      backdrop-filter: blur(4px);
+      opacity: 0; pointer-events: none;
+      transition: opacity 200ms ease;
+      z-index: 40;
+    }
+    .radial-backdrop.open { opacity: 1; pointer-events: auto; }
+  </style>
+</head>
+<body>
+  <script src="dashboard.js"></script>
+  <script>
+    const { initMockupPage, NAV_ITEMS, icon } = HolomatMockup;
+    initMockupPage({
+      label: 'Variant B · Radial Summon · click the orb (or anywhere) to invoke',
+      mountNav: (stage) => {
+        // Summon orb in corner
+        const hint = document.createElement('div');
+        hint.className = 'summon-hint';
+        hint.innerHTML = `
+          <span class="hint-text">Long-press anywhere</span>
+          <div class="summon-orb" id="summon-orb">${icon('dashboard', 22)}</div>
+        `;
+        document.body.appendChild(hint);
+
+        // Backdrop + wheel
+        const backdrop = document.createElement('div');
+        backdrop.className = 'radial-backdrop';
+        document.body.appendChild(backdrop);
+
+        const wheel = document.createElement('div');
+        wheel.className = 'radial-wheel';
+        const center = document.createElement('div');
+        center.className = 'radial-center';
+        center.textContent = 'Nav';
+        wheel.appendChild(center);
+
+        const radius = 130;
+        NAV_ITEMS.forEach((n, i) => {
+          const a = (i / NAV_ITEMS.length) * Math.PI * 2 - Math.PI / 2;
+          const x = Math.cos(a) * radius + 180;
+          const y = Math.sin(a) * radius + 180;
+          const el = document.createElement('button');
+          el.className = 'radial-item' + (i === 0 ? ' active' : '');
+          el.style.left = x + 'px';
+          el.style.top = y + 'px';
+          el.innerHTML = `${icon(n.icon, 22)}<span class="lbl">${n.label.split(' ')[0]}</span>`;
+          el.onclick = (e) => {
+            e.stopPropagation();
+            wheel.querySelectorAll('.radial-item').forEach(x => x.classList.remove('active'));
+            el.classList.add('active');
+            setTimeout(close, 180);
+          };
+          wheel.appendChild(el);
+        });
+        document.body.appendChild(wheel);
+
+        function open(x, y) {
+          wheel.style.left = x + 'px';
+          wheel.style.top = y + 'px';
+          wheel.classList.add('open');
+          backdrop.classList.add('open');
+        }
+        function close() {
+          wheel.classList.remove('open');
+          backdrop.classList.remove('open');
+        }
+
+        document.getElementById('summon-orb').onclick = (e) => {
+          e.stopPropagation();
+          open(window.innerWidth / 2, window.innerHeight / 2);
+        };
+        backdrop.onclick = close;
+
+        // Long-press anywhere on the stage to summon
+        let pressTimer = null;
+        let pressedAt = null;
+        stage.addEventListener('mousedown', (e) => {
+          if (e.target.closest('.summon-orb, .radial-wheel, .mode-toggle, .hud-card, .chip')) return;
+          pressedAt = { x: e.clientX, y: e.clientY };
+          pressTimer = setTimeout(() => open(pressedAt.x, pressedAt.y), 420);
+        });
+        stage.addEventListener('mouseup',  () => clearTimeout(pressTimer));
+        stage.addEventListener('mouseleave', () => clearTimeout(pressTimer));
+      }
+    });
+  </script>
+</body>
+</html>

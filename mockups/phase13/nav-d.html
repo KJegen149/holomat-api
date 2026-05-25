@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Phase 13 · Nav D · Orbital HUD</title>
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    @property --scale {
+      syntax: '<number>';
+      inherits: false;
+      initial-value: 1;
+    }
+
+    /* Orbital HUD — on the dashboard, the 6/7 nav items orbit the
+       central core as glowing nodes. They drift continuously on a soft
+       orbit; clicking one lifts it and pulses. On sub-pages they would
+       collapse to a small floating cluster (not shown — this is the
+       dashboard view). */
+    .orbit-host {
+      position: absolute; inset: 0;
+      pointer-events: none;
+      z-index: 12;
+    }
+    .orbit-track {
+      position: absolute; left: 50%; top: 50%;
+      width: min(82vh, 82vw); height: min(82vh, 82vw);
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      border: 1px dashed rgba(0, 220, 255, 0.10);
+      box-shadow: inset 0 0 30px rgba(0, 220, 255, 0.05);
+    }
+    .orbit-track::before, .orbit-track::after {
+      content: '';
+      position: absolute; inset: 28px;
+      border-radius: 50%;
+      border: 1px solid rgba(140, 110, 255, 0.08);
+    }
+    .orbit-track::after { inset: 60px; border-color: rgba(0, 220, 255, 0.08); }
+
+    .orbit-item {
+      --tx: 0px; --ty: 0px; --scale: 1;
+      position: absolute; left: 50%; top: 50%;
+      width: 64px; height: 64px;
+      margin: -32px 0 0 -32px;
+      border-radius: 50%;
+      background: var(--surface-hi);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--border-soft);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text); cursor: pointer;
+      pointer-events: auto;
+      transition: --scale 220ms ease, color 200ms, box-shadow 200ms, border-color 200ms, background 200ms;
+      box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+      transform: translate(var(--tx), var(--ty)) scale(var(--scale));
+    }
+    .orbit-item .lbl {
+      position: absolute; top: 100%; left: 50%;
+      transform: translateX(-50%) translateY(6px);
+      font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--muted);
+      white-space: nowrap;
+      opacity: 0;
+      transition: opacity 200ms ease;
+    }
+    .orbit-item:hover .lbl, .orbit-item.active .lbl { opacity: 1; color: var(--cyan); }
+    .orbit-item:hover {
+      --scale: 1.12;
+      color: var(--cyan);
+      border-color: var(--border-strong);
+      box-shadow: 0 0 24px rgba(0, 220, 255, 0.4), 0 6px 22px rgba(0, 0, 0, 0.5);
+    }
+    .orbit-item.active {
+      color: var(--cyan);
+      border-color: var(--cyan);
+      background: rgba(0, 220, 255, 0.14);
+      box-shadow:
+        0 0 36px rgba(0, 220, 255, 0.55),
+        inset 0 0 18px rgba(0, 220, 255, 0.22);
+    }
+
+    .orbit-tether {
+      position: absolute; left: 50%; top: 50%;
+      width: 1px; height: 1px;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <script src="dashboard.js"></script>
+  <script>
+    const { initMockupPage, NAV_ITEMS, icon } = HolomatMockup;
+    initMockupPage({
+      label: 'Variant D · Orbital HUD · nav nodes drift around the dashboard core',
+      mountNav: (stage) => {
+        const host = document.createElement('div');
+        host.className = 'orbit-host';
+        host.innerHTML = `<div class="orbit-track"></div>`;
+        stage.appendChild(host);
+
+        const nodes = NAV_ITEMS.map((n, i) => {
+          const el = document.createElement('button');
+          el.className = 'orbit-item' + (i === 0 ? ' active' : '');
+          el.dataset.id = n.id;
+          el.innerHTML = `${icon(n.icon, 22)}<span class="lbl">${n.label}</span>`;
+          el.onclick = () => {
+            host.querySelectorAll('.orbit-item').forEach(x => x.classList.remove('active'));
+            el.classList.add('active');
+          };
+          host.appendChild(el);
+          return { el, baseAngle: (i / NAV_ITEMS.length) * Math.PI * 2 - Math.PI / 2 };
+        });
+
+        function layout() {
+          const r = host.getBoundingClientRect();
+          const radius = Math.min(r.width, r.height) * 0.41;
+          const t = performance.now() * 0.00006;
+          for (const n of nodes) {
+            const a = n.baseAngle + t;
+            const wobble = Math.sin(t * 9 + n.baseAngle) * 6;
+            const x = Math.cos(a) * (radius + wobble);
+            const y = Math.sin(a) * (radius + wobble);
+            n.el.style.setProperty('--tx', x + 'px');
+            n.el.style.setProperty('--ty', y + 'px');
+          }
+          requestAnimationFrame(layout);
+        }
+        requestAnimationFrame(layout);
+      }
+    });
+  </script>
+</body>
+</html>

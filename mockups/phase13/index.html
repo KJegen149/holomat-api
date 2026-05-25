@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Phase 13 · UI Mockups</title>
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    body.scrollable { overflow: auto; min-height: 100vh; height: auto; }
+    .hero {
+      padding: 100px 40px 20px;
+      text-align: center;
+    }
+    .hero h1 {
+      font-size: 40px; font-weight: 500; margin: 0 0 8px;
+      letter-spacing: 0.2em;
+      background: linear-gradient(120deg, var(--cyan), var(--violet) 120%);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .hero p {
+      color: var(--muted); font-size: 14px; letter-spacing: 0.1em;
+      max-width: 680px; margin: 0 auto;
+    }
+    .section-title {
+      padding: 30px 40px 0;
+      font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase;
+      color: var(--cyan); font-weight: 500;
+    }
+    .meta {
+      max-width: 760px; margin: 24px auto 0;
+      padding: 18px 22px;
+      background: var(--surface);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--border-soft);
+      border-radius: var(--r-md);
+      color: var(--muted);
+      font-size: 13px; line-height: 1.6;
+    }
+    .meta strong { color: var(--text); }
+    .meta code {
+      font-family: 'JetBrains Mono', monospace;
+      background: rgba(0,220,255,0.08);
+      color: var(--cyan);
+      padding: 1px 6px; border-radius: 4px;
+      font-size: 12px;
+    }
+    footer {
+      text-align: center; padding: 40px;
+      color: var(--muted-dim); font-size: 11px; letter-spacing: 0.15em;
+    }
+  </style>
+</head>
+<body class="scrollable">
+  <div class="topbar">
+    <div>
+      <div class="brand-wordmark">JARVIS</div>
+      <div class="brand-sub">Phase 13 · UI Concept Mockups</div>
+    </div>
+    <div class="spacer"></div>
+    <div class="status-pill"><span class="dot"></span>Drafts</div>
+  </div>
+
+  <div class="hero" style="margin-top: 56px;">
+    <h1>HOLOMAT &nbsp;PHASE&nbsp;13</h1>
+    <p>Four navigation drafts &middot; three dashboard concepts &middot; soft-edged theme refresh.<br>
+       Use the top-left switcher inside each mockup to swap dashboard styles,
+       and the top-right toggle to simulate JARVIS idle / listening / speaking.</p>
+    <div class="meta">
+      <strong>Soft theme tokens:</strong> rounded surfaces (16&ndash;28px), backdrop blur,
+      gradient strokes, secondary violet accent (<code>#8C6EFF</code>), lighter typography weights.
+      The sidebar reorganizes to <strong>Dashboard &middot; Scanner &middot; Gallery &middot; Models &middot;
+      Print &middot; Home Assistant &middot; Settings</strong>; Calibration folds into Settings, Voice
+      is deleted and its surface area moves to Settings + the Dashboard.
+    </div>
+  </div>
+
+  <div class="section-title">Navigation Variants</div>
+  <div class="mockup-grid">
+    <a class="mockup-card" href="nav-a.html">
+      <h2>A &middot; Floating Arc Dock</h2>
+      <p>Curved bottom-center bar, 56&nbsp;px touch targets, active item lifts &amp; glows.
+         Best for the JARVIS aesthetic; weakest for power users who like persistent labels.</p>
+    </a>
+    <a class="mockup-card" href="nav-b.html">
+      <h2>B &middot; Radial Summon</h2>
+      <p>Long-press / two-finger-tap anywhere brings up a radial wheel at the touch point.
+         Most futuristic, most gesture-native; needs a discoverability hint.</p>
+    </a>
+    <a class="mockup-card" href="nav-c.html">
+      <h2>C &middot; Edge-Swipe Rail</h2>
+      <p>Sidebar collapses to a luminous edge. Hover or swipe in to reveal a fat rounded
+         rail with icons + labels. Closest to current mental model.</p>
+    </a>
+    <a class="mockup-card" href="nav-d.html">
+      <h2>D &middot; Orbital HUD</h2>
+      <p>Nav items orbit the central particle sphere as glowing nodes. Most cinematic;
+         on sub-pages they'd collapse into a small floating cluster (not shown).</p>
+    </a>
+  </div>
+
+  <footer>
+    Holomat &middot; Phase 13 mockups &middot; static HTML, no build step required
+  </footer>
+</body>
+</html>
